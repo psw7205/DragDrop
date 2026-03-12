@@ -3,10 +3,10 @@ import SwiftUI
 struct ShelfView: View {
     @ObservedObject var viewModel: ShelfViewModel
 
-    private let columns = [
-        GridItem(.fixed(80), spacing: 4),
-        GridItem(.fixed(80), spacing: 4)
-    ]
+    private let columns = Array(
+        repeating: GridItem(.fixed(ShelfLayout.itemWidth), spacing: ShelfLayout.gridSpacing),
+        count: ShelfLayout.columns
+    )
 
     var body: some View {
         Group {
@@ -22,6 +22,30 @@ struct ShelfView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.easeInOut(duration: 0.2), value: viewModel.displayState)
         .animation(.easeInOut(duration: 0.2), value: viewModel.items.count)
+        .alert(
+            "Failed to add files",
+            isPresented: Binding(
+                get: { viewModel.lastErrorMessage != nil },
+                set: { if !$0 { viewModel.lastErrorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {
+                viewModel.lastErrorMessage = nil
+            }
+        } message: {
+            Text(viewModel.lastErrorMessage ?? "Please try again.")
+        }
+        .alert(
+            "Delete all items?",
+            isPresented: $viewModel.showDeleteAllConfirmation
+        ) {
+            Button("Delete", role: .destructive) {
+                viewModel.removeSelected()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("\(viewModel.items.count) items will be permanently deleted.")
+        }
     }
 
     // MARK: - Indicator
@@ -45,7 +69,7 @@ struct ShelfView: View {
                 itemGrid
             }
         }
-        .frame(width: 200, height: viewModel.expandedHeight)
+        .frame(width: ShelfLayout.expandedWidth, height: viewModel.expandedHeight)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
@@ -80,12 +104,13 @@ struct ShelfView: View {
     }
 
     private var itemGrid: some View {
-        ScrollView {
+        let selectedURLs = viewModel.selectedItems.map(\.fileURL)
+        return ScrollView {
             LazyVGrid(columns: columns, spacing: 4) {
                 ForEach(viewModel.items) { item in
                     let isSelected = viewModel.selectedIDs.contains(item.id)
                     let dragURLs = isSelected
-                        ? viewModel.selectedItems.map(\.fileURL)
+                        ? selectedURLs
                         : [item.fileURL]
                     ShelfItemView(
                         item: item,
@@ -102,7 +127,7 @@ struct ShelfView: View {
                     )
                 }
             }
-            .padding(8)
+            .padding(ShelfLayout.gridPadding)
         }
     }
 }

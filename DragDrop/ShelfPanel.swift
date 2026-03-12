@@ -1,6 +1,15 @@
 import Cocoa
 
 class ShelfPanel: NSPanel {
+    convenience init(contentRect: NSRect) {
+        self.init(
+            contentRect: contentRect,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+    }
+
     override init(
         contentRect: NSRect,
         styleMask: NSWindow.StyleMask,
@@ -31,6 +40,38 @@ class ShelfPanel: NSPanel {
         isFloatingPanel = true
     }
 
+    var onSelectAll: (() -> Void)?
+    var onDeleteSelected: (() -> Void)?
+
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .leftMouseDown {
+            if #available(macOS 14.0, *) {
+                NSApp.activate()
+            } else {
+                NSApp.activate(ignoringOtherApps: true)
+            }
+            makeKey()
+        }
+        super.sendEvent(event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.keyCode == 0 {
+            onSelectAll?()
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 51 || event.keyCode == 117 {
+            onDeleteSelected?()
+            return
+        }
+        super.keyDown(with: event)
+    }
 }

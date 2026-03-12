@@ -45,6 +45,6 @@ struct ShelfItemView: View {
             }
             .buttonStyle(.plain)
         }
-        .frame(width: 80, height: 84)
+        .frame(width: ShelfLayout.itemWidth, height: ShelfLayout.itemHeight)
     }
 }

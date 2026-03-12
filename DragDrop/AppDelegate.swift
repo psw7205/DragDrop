@@ -6,7 +6,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var panel: ShelfPanel?
     let viewModel = ShelfViewModel()
     var dragMonitor: GlobalDragMonitor?
-    private var displayStateCancellable: AnyCancellable?
+    private var geometryCancellable: AnyCancellable?
+    private var panelMoveObserver: NSObjectProtocol?
+    private var panelCenterY: CGFloat?
+    private var panelCenterX: CGFloat?
+    private var preferredScreenID: NSNumber?
+    private var isUpdatingFrame = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -15,12 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupPanel() {
-        let panel = ShelfPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 200, height: 480),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
+        let panel = ShelfPanel(contentRect: NSRect(x: 0, y: 0, width: ShelfLayout.expandedWidth, height: ShelfLayout.maxHeight))
 
         let hostingView = ShelfHostingView(rootView: ShelfView(viewModel: viewModel))
         hostingView.onDragEntered = { [weak self] in
@@ -30,21 +30,48 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.viewModel.isDragHovering = false
         }
         hostingView.onFilesDropped = { [weak self] urls in
-            self?.viewModel.addFiles(from: urls)
+            self?.viewModel.addFilesAsync(from: urls)
             self?.viewModel.isDragHovering = false
             self?.viewModel.isExternalDragging = false
         }
 
+        panel.onSelectAll = { [weak self] in
+            self?.viewModel.selectAll()
+        }
+        panel.onDeleteSelected = { [weak self] in
+            self?.viewModel.requestRemoveSelected()
+        }
+
         panel.contentView = hostingView
         panel.ignoresMouseEvents = true
-        panel.orderFront(nil)
+        panel.orderOut(nil)
         self.panel = panel
 
-        displayStateCancellable = viewModel.objectWillChange
+        geometryCancellable = Publishers.MergeMany(
+            viewModel.$isExternalDragging.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$isDragHovering.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$items.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$lastErrorMessage.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$showDeleteAllConfirmation.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$pendingAddCount.map { _ in () }.eraseToAnyPublisher()
+        )
             .receive(on: RunLoop.main)
-            .sink { [weak self] in
+            .sink { [weak self] _ in
                 self?.updatePanelFrame()
             }
+
+        panelMoveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self, !self.isUpdatingFrame, let panel = self.panel else { return }
+            self.panelCenterX = panel.frame.midX
+            self.panelCenterY = panel.frame.midY
+            self.preferredScreenID = self.screenID(for: panel.screen)
+        }
+
+        updatePanelFrame()
     }
 
     private func setupDragMonitor() {
@@ -54,29 +81,78 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         monitor.onDragEnded = { [weak self] in
             self?.viewModel.isExternalDragging = false
-            self?.viewModel.isDragHovering = false
         }
         self.dragMonitor = monitor
     }
 
     private func updatePanelFrame() {
-        guard let panel, let screen = NSScreen.main else { return }
-        let rightEdge = screen.visibleFrame.maxX - 16
-        let centerY = screen.visibleFrame.midY
+        guard let panel, let screen = resolvedScreen(for: panel) else { return }
 
-        switch viewModel.displayState {
-        case .hidden:
+        if viewModel.displayState == .hidden {
+            panelCenterX = nil
+            panelCenterY = nil
             panel.ignoresMouseEvents = true
-        case .indicator:
-            panel.ignoresMouseEvents = false
-            let w: CGFloat = 60
-            let h: CGFloat = 60
-            panel.setFrame(NSRect(x: rightEdge - w, y: centerY - h / 2, width: w, height: h), display: true)
-        case .expanded:
-            panel.ignoresMouseEvents = false
-            let w: CGFloat = 200
-            let h = viewModel.expandedHeight
-            panel.setFrame(NSRect(x: rightEdge - w, y: centerY - h / 2, width: w, height: h), display: true)
+            panel.orderOut(nil)
+            return
+        }
+
+        panel.ignoresMouseEvents = false
+        if !panel.isVisible {
+            panel.orderFrontRegardless()
+        }
+
+        let isIndicator = viewModel.displayState == .indicator
+        let w: CGFloat = isIndicator ? ShelfLayout.indicatorSize : ShelfLayout.expandedWidth
+        let h: CGFloat = isIndicator ? ShelfLayout.indicatorSize : viewModel.expandedHeight
+        let rightEdge = screen.visibleFrame.maxX - ShelfLayout.screenEdgeMargin
+
+        let x: CGFloat
+        if viewModel.displayState == .indicator {
+            x = rightEdge - w
+        } else if let savedCX = panelCenterX {
+            let candidateX = savedCX - w / 2
+            x = min(max(candidateX, screen.visibleFrame.minX), screen.visibleFrame.maxX - w)
+        } else {
+            x = rightEdge - w
+        }
+
+        let currentCenterY = panelCenterY ?? screen.visibleFrame.midY
+        let minY = screen.visibleFrame.minY
+        let maxY = screen.visibleFrame.maxY
+        let clampedCenterY = min(max(currentCenterY, minY + h / 2), maxY - h / 2)
+        let frame = NSRect(x: x, y: clampedCenterY - h / 2, width: w, height: h)
+        isUpdatingFrame = true
+        panel.setFrame(frame, display: true)
+        isUpdatingFrame = false
+        panelCenterY = frame.midY
+        preferredScreenID = screenID(for: panel.screen)
+    }
+
+    private func resolvedScreen(for panel: NSPanel) -> NSScreen? {
+        if let preferredScreenID,
+           let preferred = NSScreen.screens.first(where: { screenID(for: $0) == preferredScreenID }) {
+            return preferred
+        }
+
+        if let screen = panel.screen {
+            return screen
+        }
+
+        let mouseLocation = NSEvent.mouseLocation
+        if let mouseScreen = NSScreen.screens.first(where: { $0.frame.contains(mouseLocation) }) {
+            return mouseScreen
+        }
+
+        return NSScreen.main ?? NSScreen.screens.first
+    }
+
+    private func screenID(for screen: NSScreen?) -> NSNumber? {
+        screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+    }
+
+    deinit {
+        if let panelMoveObserver {
+            NotificationCenter.default.removeObserver(panelMoveObserver)
         }
     }
 }
