@@ -25,6 +25,13 @@ open DragDrop.xcodeproj
 # Xcode에서 ⌘R
 ```
 
+### 릴리즈 빌드 & 설치
+
+```bash
+xcodebuild -project DragDrop.xcodeproj -scheme DragDrop -configuration Release build
+cp -R ~/Library/Developer/Xcode/DerivedData/DragDrop-*/Build/Products/Release/DragDrop.app /Applications/
+```
+
 ## How It Works
 
 ```
