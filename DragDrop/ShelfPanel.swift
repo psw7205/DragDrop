@@ -42,6 +42,7 @@ class ShelfPanel: NSPanel {
 
     var onSelectAll: (() -> Void)?
     var onDeleteSelected: (() -> Void)?
+    var onPaste: (() -> Void)?
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -59,10 +60,17 @@ class ShelfPanel: NSPanel {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-           event.keyCode == 0 {
-            onSelectAll?()
-            return true
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command {
+            switch event.keyCode {
+            case 0: // Cmd+A
+                onSelectAll?()
+                return true
+            case 9: // Cmd+V
+                onPaste?()
+                return true
+            default:
+                break
+            }
         }
         return super.performKeyEquivalent(with: event)
     }

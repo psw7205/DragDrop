@@ -6,6 +6,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var panel: ShelfPanel?
     let viewModel = ShelfViewModel()
     var dragMonitor: GlobalDragMonitor?
+    private var statusItem: NSStatusItem?
     private var geometryCancellable: AnyCancellable?
     private var panelMoveObserver: NSObjectProtocol?
     private var panelCenterY: CGFloat?
@@ -17,6 +18,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         setupPanel()
         setupDragMonitor()
+        setupStatusItem()
     }
 
     private func setupPanel() {
@@ -41,6 +43,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.onDeleteSelected = { [weak self] in
             self?.viewModel.requestRemoveSelected()
         }
+        panel.onPaste = { [weak self] in
+            self?.viewModel.pasteFromClipboard()
+        }
 
         panel.contentView = hostingView
         panel.ignoresMouseEvents = true
@@ -53,11 +58,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             viewModel.$items.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$lastErrorMessage.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$showDeleteAllConfirmation.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$pendingAddCount.map { _ in () }.eraseToAnyPublisher()
+            viewModel.$pendingAddCount.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$isManuallyHidden.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$isManuallyExpanded.map { _ in () }.eraseToAnyPublisher()
         )
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.updatePanelFrame()
+                self?.updateStatusIcon()
             }
 
         panelMoveObserver = NotificationCenter.default.addObserver(
@@ -72,6 +80,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         updatePanelFrame()
+        updateStatusIcon()
     }
 
     private func setupDragMonitor() {
@@ -83,6 +92,31 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.viewModel.isExternalDragging = false
         }
         self.dragMonitor = monitor
+    }
+
+    private func setupStatusItem() {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        guard let button = statusItem?.button else { return }
+        button.image = NSImage(systemSymbolName: "square.stack", accessibilityDescription: "DragDrop")
+        button.action = #selector(statusItemClicked)
+        button.target = self
+    }
+
+    @objc private func statusItemClicked() {
+        viewModel.toggleShelf()
+        if viewModel.displayState != .hidden {
+            if #available(macOS 14.0, *) {
+                NSApp.activate()
+            } else {
+                NSApp.activate(ignoringOtherApps: true)
+            }
+            panel?.makeKey()
+        }
+    }
+
+    private func updateStatusIcon() {
+        let name = viewModel.items.isEmpty ? "square.stack" : "square.stack.fill"
+        statusItem?.button?.image = NSImage(systemSymbolName: name, accessibilityDescription: "DragDrop")
     }
 
     private func updatePanelFrame() {
