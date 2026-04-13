@@ -75,20 +75,33 @@ struct ShelfView: View {
     }
 
     private var header: some View {
-        HStack {
-            Text("DragDrop")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
-            Spacer()
-            if !viewModel.items.isEmpty {
-                Text("\(viewModel.items.count)")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+        HStack(spacing: 4) {
+            HStack {
+                Text("DragDrop")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                if !viewModel.items.isEmpty {
+                    Text("\(viewModel.items.count)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                }
             }
+            .overlay(WindowDragView())
+
+            Button {
+                viewModel.toggleShelf()
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .overlay(WindowDragView())
     }
 
     private var emptyState: some View {
