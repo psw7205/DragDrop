@@ -42,71 +42,57 @@ class ShelfViewModel: ObservableObject {
 
     // MARK: - Storage
 
-    private let storageURL: URL = {
-        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("DragDrop/Items", isDirectory: true)
-        do {
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        } catch {
-            NSLog("DragDrop: Failed to create storage directory: %@", error.localizedDescription)
-        }
-        return url
-    }()
+    private let storage: ShelfStorage
+    private let clipboard: ClipboardService
 
-    init() {
-        loadPersistedItems()
+    init(storage: ShelfStorage = ShelfStorage(), clipboard: ClipboardService = ClipboardService()) {
+        self.storage = storage
+        self.clipboard = clipboard
+        items = storage.loadPersistedItems()
     }
 
     func addFilesAsync(from urls: [URL]) {
-        let candidates = urls.filter { !isOwnFile($0) }
+        let candidates = urls.filter { !storage.isOwnFile($0) }
         guard !candidates.isEmpty else { return }
 
         isManuallyHidden = false
         pendingAddCount += 1
-        let storageURL = self.storageURL
-        DispatchQueue.global(qos: .userInitiated).async {
-            var copied: [(id: UUID, fileName: String, fileURL: URL)] = []
-            var failures = 0
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            var added: [ShelfItem] = []
+            var failures: [(String, Error)] = []
 
             for url in candidates {
-                let id = UUID()
-                let destDir = storageURL.appendingPathComponent(id.uuidString, isDirectory: true)
-                let destFile = destDir.appendingPathComponent(url.lastPathComponent)
-
                 do {
-                    try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
-                    try FileManager.default.copyItem(at: url, to: destFile)
-                    copied.append((id: id, fileName: url.lastPathComponent, fileURL: destFile))
+                    let item = try self.storage.copyFile(from: url)
+                    added.append(item)
                 } catch {
-                    try? FileManager.default.removeItem(at: destDir)
-                    failures += 1
+                    failures.append((url.lastPathComponent, error))
                 }
             }
 
-            DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
-                let newItems = copied.map { ShelfItem(id: $0.id, fileName: $0.fileName, fileURL: $0.fileURL) }
-                self.items.append(contentsOf: newItems)
+            DispatchQueue.main.async {
+                self.items.append(contentsOf: added)
                 self.pendingAddCount -= 1
-                if failures > 0 {
-                    self.lastErrorMessage = failures == 1
-                        ? "1 file failed to add"
-                        : "\(failures) files failed to add"
+                if !failures.isEmpty {
+                    self.lastErrorMessage = Self.formatFailures(failures)
                 }
             }
         }
+    }
+
+    private static func formatFailures(_ failures: [(String, Error)]) -> String {
+        if failures.count == 1 {
+            return "'\(failures[0].0)' 추가 실패: \(failures[0].1.localizedDescription)"
+        }
+        return "\(failures.count)개 파일 추가 실패"
     }
 
     func removeItem(_ item: ShelfItem) {
         items.removeAll { $0.id == item.id }
         selectedIDs.remove(item.id)
-        let dir = item.fileURL.deletingLastPathComponent()
-        guard dir.standardizedFileURL.path.hasPrefix(storageURL.standardizedFileURL.path + "/") else { return }
-        do {
-            try FileManager.default.removeItem(at: dir)
-        } catch {
-            NSLog("DragDrop: Failed to remove item directory %@: %@", dir.path, error.localizedDescription)
-        }
+        storage.removeItem(item)
     }
 
     func removeSelected() {
@@ -121,68 +107,6 @@ class ShelfViewModel: ObservableObject {
         } else {
             removeSelected()
         }
-    }
-
-    private func isOwnFile(_ url: URL) -> Bool {
-        let normalizedStorage = storageURL.standardizedFileURL.path
-        let normalizedURL = url.standardizedFileURL.path
-        return normalizedURL == normalizedStorage || normalizedURL.hasPrefix(normalizedStorage + "/")
-    }
-
-    private func loadPersistedItems() {
-        let fileManager = FileManager.default
-        guard let directories = try? fileManager.contentsOfDirectory(
-            at: storageURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else { return }
-
-        var loaded: [ShelfItem] = []
-        var staleDirectories: [URL] = []
-
-        for directory in directories {
-            guard let values = try? directory.resourceValues(forKeys: [.isDirectoryKey]), values.isDirectory == true else {
-                continue
-            }
-            guard let uuid = UUID(uuidString: directory.lastPathComponent) else {
-                staleDirectories.append(directory)
-                continue
-            }
-
-            guard let files = try? fileManager.contentsOfDirectory(
-                at: directory,
-                includingPropertiesForKeys: [.creationDateKey],
-                options: [.skipsHiddenFiles]
-            ), let fileURL = files.first else {
-                staleDirectories.append(directory)
-                continue
-            }
-
-            if files.count > 1 {
-                let extras = files.dropFirst()
-                for extra in extras {
-                    do {
-                        try fileManager.removeItem(at: extra)
-                    } catch {
-                        NSLog("DragDrop: Failed to remove extra persisted file %@: %@", extra.path, error.localizedDescription)
-                    }
-                }
-            }
-
-            let createdAt = (try? fileURL.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
-            loaded.append(
-                ShelfItem(id: uuid, fileName: fileURL.lastPathComponent, fileURL: fileURL, addedAt: createdAt)
-            )
-        }
-
-        for directory in staleDirectories {
-            do {
-                try fileManager.removeItem(at: directory)
-            } catch {
-                NSLog("DragDrop: Failed to remove stale directory %@: %@", directory.path, error.localizedDescription)
-            }
-        }
-        items = loaded.sorted { $0.addedAt < $1.addedAt }
     }
 
     // MARK: - Toggle
@@ -205,70 +129,37 @@ class ShelfViewModel: ObservableObject {
     // MARK: - Paste
 
     func pasteFromClipboard() {
-        let pasteboard = NSPasteboard.general
-
-        // 1. File URLs (Finder Cmd+C)
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [
-            .urlReadingFileURLsOnly: true
-        ]) as? [URL], !urls.isEmpty {
+        guard let content = clipboard.read() else { return }
+        switch content {
+        case .files(let urls):
             addFilesAsync(from: urls)
-            return
-        }
-
-        let timestamp = Self.clipboardTimestamp()
-
-        // 2. Image
-        if let image = NSImage(pasteboard: pasteboard),
-           let tiffData = image.tiffRepresentation,
-           let bitmap = NSBitmapImageRep(data: tiffData),
-           let pngData = bitmap.representation(using: .png, properties: [:]) {
-            addData(pngData, fileName: "Clipboard \(timestamp).png")
-            return
-        }
-
-        // 3. Text
-        if let text = pasteboard.string(forType: .string), !text.isEmpty {
+        case .image(let data, let name):
+            saveDataAsync(data, fileName: name)
+        case .text(let text, let name):
             guard let data = text.data(using: .utf8) else { return }
-            addData(data, fileName: "Clipboard \(timestamp).txt")
-            return
+            saveDataAsync(data, fileName: name)
         }
     }
 
-    private func addData(_ data: Data, fileName: String) {
+    private func saveDataAsync(_ data: Data, fileName: String) {
         isManuallyHidden = false
         pendingAddCount += 1
-        let storageURL = self.storageURL
-        let id = UUID()
 
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            let destDir = storageURL.appendingPathComponent(id.uuidString, isDirectory: true)
-            let destFile = destDir.appendingPathComponent(fileName)
-            var succeeded = false
-
+            guard let self else { return }
             do {
-                try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
-                try data.write(to: destFile)
-                succeeded = true
-            } catch {
-                try? FileManager.default.removeItem(at: destDir)
-            }
-
-            DispatchQueue.main.async {
-                guard let self else { return }
-                if succeeded {
-                    self.items.append(ShelfItem(id: id, fileName: fileName, fileURL: destFile))
-                } else {
-                    self.lastErrorMessage = "Failed to paste"
+                let item = try self.storage.saveData(data, fileName: fileName)
+                DispatchQueue.main.async {
+                    self.items.append(item)
+                    self.pendingAddCount -= 1
                 }
-                self.pendingAddCount -= 1
+            } catch {
+                DispatchQueue.main.async {
+                    self.lastErrorMessage = "'\(fileName)' 붙여넣기 실패: \(error.localizedDescription)"
+                    self.pendingAddCount -= 1
+                }
             }
         }
-    }
-
-    private static func clipboardTimestamp() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HHmmss"
-        return formatter.string(from: Date())
     }
 
     // MARK: - Selection

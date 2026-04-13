@@ -52,16 +52,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.orderOut(nil)
         self.panel = panel
 
-        geometryCancellable = Publishers.MergeMany(
-            viewModel.$isExternalDragging.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$isDragHovering.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$items.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$lastErrorMessage.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$showDeleteAllConfirmation.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$pendingAddCount.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$isManuallyHidden.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$isManuallyExpanded.map { _ in () }.eraseToAnyPublisher()
-        )
+        geometryCancellable = viewModel.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.updatePanelFrame()
@@ -91,6 +82,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         monitor.onDragEnded = { [weak self] in
             self?.viewModel.isExternalDragging = false
         }
+        monitor.start()
         self.dragMonitor = monitor
     }
 

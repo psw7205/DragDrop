@@ -28,3 +28,6 @@ playground.xcworkspace
 .LSOverride
 *.swp
 *~
+
+# Superpowers brainstorming artifacts
+.superpowers/

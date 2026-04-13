@@ -1,4 +1,5 @@
 import Cocoa
+import Carbon.HIToolbox
 
 class ShelfPanel: NSPanel {
     convenience init(contentRect: NSRect) {
@@ -61,11 +62,11 @@ class ShelfPanel: NSPanel {
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command {
-            switch event.keyCode {
-            case 0: // Cmd+A
+            switch Int(event.keyCode) {
+            case kVK_ANSI_A:
                 onSelectAll?()
                 return true
-            case 9: // Cmd+V
+            case kVK_ANSI_V:
                 onPaste?()
                 return true
             default:
@@ -76,10 +77,11 @@ class ShelfPanel: NSPanel {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 51 || event.keyCode == 117 {
+        switch Int(event.keyCode) {
+        case kVK_Delete, kVK_ForwardDelete:
             onDeleteSelected?()
-            return
+        default:
+            super.keyDown(with: event)
         }
-        super.keyDown(with: event)
     }
 }

@@ -16,7 +16,7 @@ struct ShelfItemView: View {
                     .frame(width: 40, height: 40)
                     .frame(width: 48, height: 48)
 
-                Text(item.fileName)
+                Text(item.displayName)
                     .font(.system(size: 10))
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
