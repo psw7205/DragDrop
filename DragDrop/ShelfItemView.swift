@@ -83,6 +83,7 @@ struct ShelfItemView: View {
                 DragSourceView(
                     urls: dragURLs,
                     icon: item.icon,
+                    itemID: item.id,
                     onClick: onTap
                 )
             )

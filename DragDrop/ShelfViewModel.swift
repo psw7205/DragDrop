@@ -121,6 +121,14 @@ class ShelfViewModel: ObservableObject {
         toRemove.forEach { removeItem($0) }
     }
 
+    func moveItem(withID id: UUID, toIndex targetIndex: Int) {
+        guard let sourceIndex = items.firstIndex(where: { $0.id == id }) else { return }
+        let clamped = min(max(targetIndex, 0), items.count - 1)
+        guard sourceIndex != clamped else { return }
+        let item = items.remove(at: sourceIndex)
+        items.insert(item, at: clamped)
+    }
+
     func requestRemoveSelected() {
         guard !selectedIDs.isEmpty else { return }
         if selectedIDs.count == items.count {

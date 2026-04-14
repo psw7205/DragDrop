@@ -47,6 +47,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.viewModel.isDragHovering = false
             self?.viewModel.isExternalDragging = false
         }
+        hostingView.onItemReordered = { [weak self] sourceID, targetIndex in
+            self?.viewModel.moveItem(withID: sourceID, toIndex: targetIndex)
+            self?.viewModel.isDragHovering = false
+            self?.viewModel.isExternalDragging = false
+        }
 
         panel.onSelectAll = { [weak self] in
             self?.viewModel.selectAll()
