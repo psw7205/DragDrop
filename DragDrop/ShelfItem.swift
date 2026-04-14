@@ -3,8 +3,8 @@ import AppKit
 
 enum ShelfContent: Equatable {
     case file(url: URL, fileName: String)
-    case text(string: String, savedURL: URL)
-    case image(savedURL: URL, originalName: String?)
+    case text(url: URL, snippet: String)
+    case image(url: URL)
 }
 
 struct ShelfItem: Identifiable, Equatable {
@@ -15,16 +15,16 @@ struct ShelfItem: Identifiable, Equatable {
     var displayName: String {
         switch content {
         case .file(_, let fileName): return fileName
-        case .text(_, let savedURL): return savedURL.lastPathComponent
-        case .image(_, let originalName): return originalName ?? "Image"
+        case .text(let url, _): return url.lastPathComponent
+        case .image(let url): return url.lastPathComponent
         }
     }
 
     var fileURL: URL {
         switch content {
         case .file(let url, _): return url
-        case .text(_, let savedURL): return savedURL
-        case .image(let savedURL, _): return savedURL
+        case .text(let url, _): return url
+        case .image(let url): return url
         }
     }
 

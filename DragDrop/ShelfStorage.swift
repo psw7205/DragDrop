@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import UniformTypeIdentifiers
 
 class ShelfStorage {
     private let storageURL: URL
@@ -23,7 +24,7 @@ class ShelfStorage {
         do {
             try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
             try FileManager.default.copyItem(at: url, to: destFile)
-            return ShelfItem(id: id, content: .file(url: destFile, fileName: url.lastPathComponent))
+            return ShelfItem(id: id, content: Self.classifyContent(url: destFile))
         } catch {
             try? FileManager.default.removeItem(at: destDir)
             throw error
@@ -38,7 +39,7 @@ class ShelfStorage {
         do {
             try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
             try data.write(to: destFile)
-            return ShelfItem(id: id, content: .file(url: destFile, fileName: fileName))
+            return ShelfItem(id: id, content: Self.classifyContent(url: destFile))
         } catch {
             try? FileManager.default.removeItem(at: destDir)
             throw error
@@ -98,7 +99,7 @@ class ShelfStorage {
 
             let createdAt = (try? fileURL.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? Date()
             loaded.append(
-                ShelfItem(id: uuid, content: .file(url: fileURL, fileName: fileURL.lastPathComponent), addedAt: createdAt)
+                ShelfItem(id: uuid, content: Self.classifyContent(url: fileURL), addedAt: createdAt)
             )
         }
 
@@ -118,5 +119,32 @@ class ShelfStorage {
         let normalizedStorage = storageURL.standardizedFileURL.path
         let normalizedURL = url.standardizedFileURL.path
         return normalizedURL == normalizedStorage || normalizedURL.hasPrefix(normalizedStorage + "/")
+    }
+
+    static func classifyContent(url: URL) -> ShelfContent {
+        let ext = url.pathExtension
+        guard !ext.isEmpty, let type = UTType(filenameExtension: ext) else {
+            return .file(url: url, fileName: url.lastPathComponent)
+        }
+
+        if type.conforms(to: .image) {
+            return .image(url: url)
+        }
+
+        if type.conforms(to: .plainText) {
+            let snippet = Self.readSnippet(from: url)
+            return .text(url: url, snippet: snippet)
+        }
+
+        return .file(url: url, fileName: url.lastPathComponent)
+    }
+
+    private static func readSnippet(from url: URL, maxBytes: Int = 512, maxChars: Int = 200) -> String {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return "" }
+        defer { try? handle.close() }
+        guard let data = try? handle.read(upToCount: maxBytes) else { return "" }
+        let raw = String(decoding: data, as: UTF8.self)
+        if raw.count <= maxChars { return raw }
+        return String(raw.prefix(maxChars)) + "…"
     }
 }

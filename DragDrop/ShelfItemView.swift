@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageIO
 
 struct ShelfItemView: View {
     let item: ShelfItem
@@ -7,13 +8,54 @@ struct ShelfItemView: View {
     let onRemove: () -> Void
     let onTap: (NSEvent.ModifierFlags) -> Void
 
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            VStack(spacing: 4) {
+    private func thumbnail(for url: URL, maxSize: CGFloat = 96) -> NSImage? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceThumbnailMaxPixelSize: maxSize,
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ]
+        guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+    }
+
+    @ViewBuilder
+    private var contentPreview: some View {
+        switch item.content {
+        case .image(let url):
+            if let thumb = thumbnail(for: url) {
+                Image(nsImage: thumb)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            } else {
                 Image(nsImage: item.icon)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(width: 40, height: 40)
+            }
+        case .text(_, let snippet):
+            Text(snippet)
+                .font(.system(size: 7, design: .monospaced))
+                .lineLimit(5)
+                .multilineTextAlignment(.leading)
+                .padding(4)
+                .frame(width: 48, height: 48, alignment: .topLeading)
+                .background(Color.secondary.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+        case .file:
+            Image(nsImage: item.icon)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 40, height: 40)
+        }
+    }
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            VStack(spacing: 4) {
+                contentPreview
                     .frame(width: 48, height: 48)
 
                 Text(item.displayName)
