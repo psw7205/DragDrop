@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Combine
 import QuickLookUI
+import Carbon.HIToolbox
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var panel: ShelfPanel?
@@ -15,12 +16,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelCenterX: CGFloat?
     private var preferredScreenID: NSNumber?
     private var isUpdatingFrame = false
+    private var globalHotkeyMonitor: Any?
+    private var localHotkeyMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         setupPanel()
         setupDragMonitor()
         setupStatusItem()
+        setupGlobalHotkey()
     }
 
     private func setupPanel() {
@@ -105,6 +109,41 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         monitor.start()
         self.dragMonitor = monitor
+    }
+
+    private func setupGlobalHotkey() {
+        globalHotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.handleHotkey(event)
+        }
+        localHotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            if self?.handleHotkey(event) == true { return nil }
+            return event
+        }
+    }
+
+    @discardableResult
+    private func handleHotkey(_ event: NSEvent) -> Bool {
+        let required: NSEvent.ModifierFlags = [.option, .shift]
+        let forbidden: NSEvent.ModifierFlags = [.command, .control]
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains(required), flags.intersection(forbidden).isEmpty,
+              Int(event.keyCode) == kVK_ANSI_D else {
+            return false
+        }
+        toggleShelfFromHotkey()
+        return true
+    }
+
+    private func toggleShelfFromHotkey() {
+        viewModel.toggleShelf()
+        if viewModel.displayState != .hidden {
+            if #available(macOS 14.0, *) {
+                NSApp.activate()
+            } else {
+                NSApp.activate(ignoringOtherApps: true)
+            }
+            panel?.makeKey()
+        }
     }
 
     private func setupStatusItem() {
@@ -213,6 +252,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     deinit {
         if let panelMoveObserver {
             NotificationCenter.default.removeObserver(panelMoveObserver)
+        }
+        if let globalHotkeyMonitor {
+            NSEvent.removeMonitor(globalHotkeyMonitor)
+        }
+        if let localHotkeyMonitor {
+            NSEvent.removeMonitor(localHotkeyMonitor)
         }
     }
 }
