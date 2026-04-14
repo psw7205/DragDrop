@@ -36,6 +36,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.viewModel.isDragHovering = false
             self?.viewModel.isExternalDragging = false
         }
+        hostingView.onLinkDropped = { [weak self] url in
+            self?.viewModel.addLinkAsync(from: url)
+            self?.viewModel.isDragHovering = false
+            self?.viewModel.isExternalDragging = false
+        }
 
         panel.onSelectAll = { [weak self] in
             self?.viewModel.selectAll()

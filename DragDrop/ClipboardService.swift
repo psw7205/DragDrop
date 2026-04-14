@@ -5,6 +5,7 @@ struct ClipboardService {
         case files([URL])
         case image(Data, suggestedName: String)
         case text(String, suggestedName: String)
+        case url(URL)
     }
 
     func read() -> Content? {
@@ -26,6 +27,13 @@ struct ClipboardService {
         }
 
         if let text = pasteboard.string(forType: .string), !text.isEmpty {
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.contains("\n"),
+               let parsedURL = URL(string: trimmed),
+               let scheme = parsedURL.scheme,
+               ["http", "https"].contains(scheme.lowercased()) {
+                return .url(parsedURL)
+            }
             return .text(text, suggestedName: "Clipboard \(timestamp).txt")
         }
 

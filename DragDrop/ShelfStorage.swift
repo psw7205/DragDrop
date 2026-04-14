@@ -46,6 +46,24 @@ class ShelfStorage {
         }
     }
 
+    func saveLink(from originalURL: URL) throws -> ShelfItem {
+        let id = UUID()
+        let destDir = storageURL.appendingPathComponent(id.uuidString, isDirectory: true)
+        let host = originalURL.host ?? "link"
+        let destFile = destDir.appendingPathComponent("\(host).webloc")
+
+        do {
+            try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
+            let plist: [String: String] = ["URL": originalURL.absoluteString]
+            let data = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            try data.write(to: destFile)
+            return ShelfItem(id: id, content: .link(url: destFile, originalURL: originalURL))
+        } catch {
+            try? FileManager.default.removeItem(at: destDir)
+            throw error
+        }
+    }
+
     func removeItem(_ item: ShelfItem) {
         let dir = item.fileURL.deletingLastPathComponent()
         guard dir.standardizedFileURL.path.hasPrefix(storageURL.standardizedFileURL.path + "/") else { return }
@@ -127,6 +145,10 @@ class ShelfStorage {
             return .file(url: url, fileName: url.lastPathComponent)
         }
 
+        if ext.lowercased() == "webloc", let originalURL = readWeblocURL(from: url) {
+            return .link(url: url, originalURL: originalURL)
+        }
+
         if type.conforms(to: .image) {
             return .image(url: url)
         }
@@ -146,5 +168,15 @@ class ShelfStorage {
         let raw = String(decoding: data, as: UTF8.self)
         if raw.count <= maxChars { return raw }
         return String(raw.prefix(maxChars)) + "…"
+    }
+
+    private static func readWeblocURL(from url: URL) -> URL? {
+        guard let data = try? Data(contentsOf: url),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let urlString = plist["URL"] as? String,
+              let originalURL = URL(string: urlString) else {
+            return nil
+        }
+        return originalURL
     }
 }

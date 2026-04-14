@@ -82,6 +82,27 @@ class ShelfViewModel: ObservableObject {
         }
     }
 
+    func addLinkAsync(from url: URL) {
+        isManuallyHidden = false
+        pendingAddCount += 1
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            do {
+                let item = try self.storage.saveLink(from: url)
+                DispatchQueue.main.async {
+                    self.items.append(item)
+                    self.pendingAddCount -= 1
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.lastErrorMessage = "링크 추가 실패: \(error.localizedDescription)"
+                    self.pendingAddCount -= 1
+                }
+            }
+        }
+    }
+
     private static func formatFailures(_ failures: [(String, Error)]) -> String {
         if failures.count == 1 {
             return "'\(failures[0].0)' 추가 실패: \(failures[0].1.localizedDescription)"
@@ -138,6 +159,8 @@ class ShelfViewModel: ObservableObject {
         case .text(let text, let name):
             guard let data = text.data(using: .utf8) else { return }
             saveDataAsync(data, fileName: name)
+        case .url(let url):
+            addLinkAsync(from: url)
         }
     }
 

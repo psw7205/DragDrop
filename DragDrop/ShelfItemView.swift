@@ -49,6 +49,13 @@ struct ShelfItemView: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 40, height: 40)
+        case .link:
+            Image(systemName: "globe")
+                .font(.system(size: 28))
+                .foregroundStyle(.secondary)
+                .frame(width: 48, height: 48)
+                .background(Color.secondary.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
         }
     }
 

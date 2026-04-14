@@ -5,6 +5,7 @@ enum ShelfContent: Equatable {
     case file(url: URL, fileName: String)
     case text(url: URL, snippet: String)
     case image(url: URL)
+    case link(url: URL, originalURL: URL)
 }
 
 struct ShelfItem: Identifiable, Equatable {
@@ -17,6 +18,7 @@ struct ShelfItem: Identifiable, Equatable {
         case .file(_, let fileName): return fileName
         case .text(let url, _): return url.lastPathComponent
         case .image(let url): return url.lastPathComponent
+        case .link(_, let originalURL): return originalURL.host ?? "link"
         }
     }
 
@@ -25,6 +27,7 @@ struct ShelfItem: Identifiable, Equatable {
         case .file(let url, _): return url
         case .text(let url, _): return url
         case .image(let url): return url
+        case .link(let url, _): return url
         }
     }
 

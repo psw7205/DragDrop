@@ -5,6 +5,7 @@ class ShelfHostingView: NSView {
     var onDragEntered: (() -> Void)?
     var onDragExited: (() -> Void)?
     var onFilesDropped: (([URL]) -> Void)?
+    var onLinkDropped: ((URL) -> Void)?
 
     init<V: View>(rootView: V) {
         super.init(frame: .zero)
@@ -17,7 +18,7 @@ class ShelfHostingView: NSView {
             hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
             hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
-        registerForDraggedTypes([.fileURL])
+        registerForDraggedTypes([.fileURL, .URL])
     }
 
     @available(*, unavailable)
@@ -37,13 +38,27 @@ class ShelfHostingView: NSView {
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard let urls = sender.draggingPasteboard.readObjects(
+        let pasteboard = sender.draggingPasteboard
+
+        // file URL 먼저 시도
+        if let fileURLs = pasteboard.readObjects(
             forClasses: [NSURL.self],
             options: [.urlReadingFileURLsOnly: true]
-        ) as? [URL], !urls.isEmpty else {
-            return false
+        ) as? [URL], !fileURLs.isEmpty {
+            onFilesDropped?(fileURLs)
+            return true
         }
-        onFilesDropped?(urls)
-        return true
+
+        // non-file URL (웹 링크)
+        if let urls = pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: false]
+        ) as? [URL], let webURL = urls.first,
+           let scheme = webURL.scheme, ["http", "https"].contains(scheme.lowercased()) {
+            onLinkDropped?(webURL)
+            return true
+        }
+
+        return false
     }
 }
