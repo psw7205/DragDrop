@@ -6,8 +6,19 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		716528891742E8283D4001F7 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 47BDFB032F5FF57600D94F94 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 47BDFB0A2F5FF57600D94F94;
+			remoteInfo = DragDrop;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		47BDFB0B2F5FF57600D94F94 /* DragDrop.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DragDrop.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		D8F0D48C9C69D61FC3389FA5 /* DragDropTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DragDropTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +27,22 @@
 			path = DragDrop;
 			sourceTree = "<group>";
 		};
+		8FC1FA4021335768255D0F33 /* DragDropTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = DragDropTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		47BDFB082F5FF57600D94F94 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4230668A7DB53B0F3EA93A67 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +56,7 @@
 			isa = PBXGroup;
 			children = (
 				47BDFB0D2F5FF57600D94F94 /* DragDrop */,
+				8FC1FA4021335768255D0F33 /* DragDropTests */,
 				47BDFB0C2F5FF57600D94F94 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +65,7 @@
 			isa = PBXGroup;
 			children = (
 				47BDFB0B2F5FF57600D94F94 /* DragDrop.app */,
+				D8F0D48C9C69D61FC3389FA5 /* DragDropTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,6 +95,29 @@
 			productReference = 47BDFB0B2F5FF57600D94F94 /* DragDrop.app */;
 			productType = "com.apple.product-type.application";
 		};
+		F6E8ED2A1BDD92E2EF7BF87E /* DragDropTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = E0A3AB3721DE295BAE1FDAF9 /* Build configuration list for PBXNativeTarget "DragDropTests" */;
+			buildPhases = (
+				E50545A6D4C06B85B5F5B3F6 /* Sources */,
+				4230668A7DB53B0F3EA93A67 /* Frameworks */,
+				FBE638DCCC68188F91E113DC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				BCE3B7173B2B34495E787D23 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				8FC1FA4021335768255D0F33 /* DragDropTests */,
+			);
+			name = DragDropTests;
+			packageProductDependencies = (
+			);
+			productName = DragDropTests;
+			productReference = D8F0D48C9C69D61FC3389FA5 /* DragDropTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -82,6 +130,10 @@
 				TargetAttributes = {
 					47BDFB0A2F5FF57600D94F94 = {
 						CreatedOnToolsVersion = 26.3;
+					};
+					F6E8ED2A1BDD92E2EF7BF87E = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = 47BDFB0A2F5FF57600D94F94;
 					};
 				};
 			};
@@ -100,12 +152,20 @@
 			projectRoot = "";
 			targets = (
 				47BDFB0A2F5FF57600D94F94 /* DragDrop */,
+				F6E8ED2A1BDD92E2EF7BF87E /* DragDropTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		47BDFB092F5FF57600D94F94 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FBE638DCCC68188F91E113DC /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +182,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E50545A6D4C06B85B5F5B3F6 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		BCE3B7173B2B34495E787D23 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 47BDFB0A2F5FF57600D94F94 /* DragDrop */;
+			targetProxy = 716528891742E8283D4001F7 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		47BDFB142F5FF57800D94F94 /* Debug */ = {
@@ -299,6 +374,52 @@
 			};
 			name = Release;
 		};
+		17A292AD6C9DCDF4EA64EDD2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = work.sangwoo.DragDropTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/DragDrop.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/DragDrop";
+			};
+			name = Debug;
+		};
+		DCD9B2B0342A346E1D113BC8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = work.sangwoo.DragDropTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 7;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/DragDrop.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/DragDrop";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -316,6 +437,15 @@
 			buildConfigurations = (
 				47BDFB172F5FF57800D94F94 /* Debug */,
 				47BDFB182F5FF57800D94F94 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		E0A3AB3721DE295BAE1FDAF9 /* Build configuration list for PBXNativeTarget "DragDropTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				17A292AD6C9DCDF4EA64EDD2 /* Debug */,
+				DCD9B2B0342A346E1D113BC8 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
