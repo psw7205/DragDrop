@@ -6,9 +6,9 @@ import Carbon.HIToolbox
 import ServiceManagement
 
 class AppDelegate: NSObject, NSApplicationDelegate {
-    var panel: ShelfPanel?
-    let viewModel = ShelfViewModel()
-    var dragMonitor: GlobalDragMonitor?
+    private(set) var panel: ShelfPanel?
+    private let viewModel = ShelfViewModel()
+    private var dragMonitor: GlobalDragMonitor?
     private var statusItem: NSStatusItem?
     private var geometryCancellable: AnyCancellable?
     private var selectionCancellable: AnyCancellable?
@@ -142,14 +142,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func toggleShelfFromHotkey() {
         viewModel.toggleShelf()
-        if viewModel.displayState != .hidden {
-            if #available(macOS 14.0, *) {
-                NSApp.activate()
-            } else {
-                NSApp.activate(ignoringOtherApps: true)
-            }
-            panel?.makeKey()
+        activateIfVisible()
+    }
+
+    private func activateIfVisible() {
+        guard viewModel.displayState != .hidden else { return }
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
         }
+        panel?.makeKey()
     }
 
     private func setupStatusItem() {
@@ -183,14 +186,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         viewModel.toggleShelf()
-        if viewModel.displayState != .hidden {
-            if #available(macOS 14.0, *) {
-                NSApp.activate()
-            } else {
-                NSApp.activate(ignoringOtherApps: true)
-            }
-            panel?.makeKey()
-        }
+        activateIfVisible()
     }
 
     private func showStatusMenu() {
