@@ -44,6 +44,7 @@ class ShelfPanel: NSPanel {
     var onSelectAll: (() -> Void)?
     var onDeleteSelected: (() -> Void)?
     var onPaste: (() -> Void)?
+    var onQuickLook: (() -> Void)?
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -80,6 +81,8 @@ class ShelfPanel: NSPanel {
         switch Int(event.keyCode) {
         case kVK_Delete, kVK_ForwardDelete:
             onDeleteSelected?()
+        case kVK_Space:
+            onQuickLook?()
         default:
             super.keyDown(with: event)
         }

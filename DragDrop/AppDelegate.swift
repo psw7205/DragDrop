@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Combine
+import QuickLookUI
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var panel: ShelfPanel?
@@ -8,6 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var dragMonitor: GlobalDragMonitor?
     private var statusItem: NSStatusItem?
     private var geometryCancellable: AnyCancellable?
+    private var selectionCancellable: AnyCancellable?
     private var panelMoveObserver: NSObjectProtocol?
     private var panelCenterY: CGFloat?
     private var panelCenterX: CGFloat?
@@ -51,6 +53,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         panel.onPaste = { [weak self] in
             self?.viewModel.pasteFromClipboard()
         }
+        panel.onQuickLook = { [weak self] in
+            self?.toggleQuickLook()
+        }
 
         panel.contentView = hostingView
         panel.ignoresMouseEvents = true
@@ -62,6 +67,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .sink { [weak self] _ in
                 self?.updatePanelFrame()
                 self?.updateStatusIcon()
+            }
+
+        selectionCancellable = viewModel.$selectedIDs
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let qlPanel = QLPreviewPanel.shared()!
+                if qlPanel.isVisible {
+                    qlPanel.dataSource = self
+                    qlPanel.reloadData()
+                }
             }
 
         panelMoveObserver = NotificationCenter.default.addObserver(
@@ -97,6 +113,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         button.image = NSImage(systemSymbolName: "square.stack", accessibilityDescription: "DragDrop")
         button.action = #selector(statusItemClicked)
         button.target = self
+    }
+
+    private func toggleQuickLook() {
+        guard !viewModel.selectedItems.isEmpty else { return }
+        let panel = QLPreviewPanel.shared()!
+        if panel.isVisible {
+            panel.orderOut(nil)
+        } else {
+            panel.dataSource = self
+            panel.delegate = self
+            panel.reloadData()
+            panel.makeKeyAndOrderFront(nil)
+        }
     }
 
     @objc private func statusItemClicked() {
@@ -185,5 +214,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let panelMoveObserver {
             NotificationCenter.default.removeObserver(panelMoveObserver)
         }
+    }
+}
+
+extension AppDelegate: QLPreviewPanelDataSource, QLPreviewPanelDelegate {
+    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        viewModel.selectedItems.count
+    }
+
+    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! {
+        guard index < viewModel.selectedItems.count else { return nil }
+        return viewModel.selectedItems[index].fileURL as NSURL
     }
 }
