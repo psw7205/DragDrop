@@ -3,6 +3,7 @@ import SwiftUI
 import Combine
 import QuickLookUI
 import Carbon.HIToolbox
+import ServiceManagement
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     var panel: ShelfPanel?
@@ -155,8 +156,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         guard let button = statusItem?.button else { return }
         button.image = NSImage(systemSymbolName: "square.stack", accessibilityDescription: "DragDrop")
-        button.action = #selector(statusItemClicked)
+        button.action = #selector(statusItemClicked(_:))
         button.target = self
+        button.sendAction(on: [.leftMouseUp, .rightMouseUp])
     }
 
     private func toggleQuickLook() {
@@ -172,7 +174,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func statusItemClicked() {
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        guard let event = NSApp.currentEvent else { return }
+
+        if event.type == .rightMouseUp {
+            showStatusMenu()
+            return
+        }
+
         viewModel.toggleShelf()
         if viewModel.displayState != .hidden {
             if #available(macOS 14.0, *) {
@@ -182,6 +191,66 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
             panel?.makeKey()
         }
+    }
+
+    private func showStatusMenu() {
+        let menu = NSMenu()
+
+        let launchItem = NSMenuItem(
+            title: "Launch at Login",
+            action: #selector(toggleLaunchAtLogin),
+            keyEquivalent: ""
+        )
+        launchItem.target = self
+        launchItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        menu.addItem(launchItem)
+
+        menu.addItem(.separator())
+
+        let aboutItem = NSMenuItem(
+            title: "About DragDrop",
+            action: #selector(showAbout),
+            keyEquivalent: ""
+        )
+        aboutItem.target = self
+        menu.addItem(aboutItem)
+
+        let quitItem = NSMenuItem(
+            title: "Quit DragDrop",
+            action: #selector(quitApp),
+            keyEquivalent: "q"
+        )
+        quitItem.target = self
+        menu.addItem(quitItem)
+
+        statusItem?.menu = menu
+        statusItem?.button?.performClick(nil)
+        statusItem?.menu = nil
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        do {
+            if SMAppService.mainApp.status == .enabled {
+                try SMAppService.mainApp.unregister()
+            } else {
+                try SMAppService.mainApp.register()
+            }
+        } catch {
+            NSLog("DragDrop: Failed to toggle launch at login: %@", error.localizedDescription)
+        }
+    }
+
+    @objc private func showAbout() {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
+        let alert = NSAlert()
+        alert.messageText = "DragDrop"
+        alert.informativeText = "Version \(version)\nA floating shelf for temporary file storage."
+        alert.alertStyle = .informational
+        alert.runModal()
+    }
+
+    @objc private func quitApp() {
+        NSApp.terminate(nil)
     }
 
     private func updateStatusIcon() {
