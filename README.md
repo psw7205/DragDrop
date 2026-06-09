@@ -27,6 +27,16 @@ open DragDrop.xcodeproj
 # Xcode에서 ⌘R
 ```
 
+### 로컬 빌드 & 실행
+
+```bash
+script/build_and_run.sh
+```
+
+- 기본값은 `Debug` configuration과 현재 Mac architecture다.
+- 실행 없이 빌드만 확인하려면 `BUILD_ONLY=1 script/build_and_run.sh`를 사용한다.
+- `CONFIGURATION`, `DESTINATION`, `DERIVED_DATA_PATH` 환경 변수로 빌드 설정을 덮어쓸 수 있다.
+
 ### 릴리즈 빌드 & 설치
 
 ```bash
