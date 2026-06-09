@@ -14,6 +14,15 @@ open DragDrop.xcodeproj  # Xcode에서 ⌘R
 - macOS 타겟, Swift/SwiftUI
 - `DragDropTests` 테스트 타겟 있음
 
+## Operating Rules
+
+- `확인`, `검토`, `분석`, `리뷰` 요청은 read-only로 처리한다.
+- `수정`, `구현`, `반영`, `업데이트`, `커밋`, `설치` 요청은 execution으로 처리한다.
+- 앱 코드, 테스트, 빌드 설정, 배포 스크립트를 바꾸는 작업은 커밋하고 Release 빌드를 로컬에 설치하는 것까지 한 사이클이다.
+- 위 작업에서 완료 보고 전 기본 순서는 `xcodebuild clean test -project DragDrop.xcodeproj -scheme DragDrop -configuration Debug -destination 'platform=macOS'` → 관련 파일만 `git add` → `git commit` → `./install.sh` 이다.
+- 문서만 바꾸는 작업은 `./install.sh` 대상이 아니다. 대신 diff 검증 후 관련 문서만 커밋한다.
+- 검증을 실행하지 못하거나 설치하지 못하면 성공으로 말하지 말고, 실패한 단계와 남은 리스크를 명시한다.
+
 ## Architecture
 
 SwiftUI + AppKit 하이브리드, MVVM 패턴.
