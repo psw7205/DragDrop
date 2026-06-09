@@ -5,11 +5,24 @@ import QuickLookUI
 import Carbon.HIToolbox
 import ServiceManagement
 
+private enum PreferencesWindowError: LocalizedError {
+    case appUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .appUnavailable:
+            "DragDrop is unavailable."
+        }
+    }
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var panel: ShelfPanel?
     private let viewModel = ShelfViewModel()
+    private let preferences = ShelfPreferences()
     private var dragMonitor: GlobalDragMonitor?
     private var statusItem: NSStatusItem?
+    private var preferencesWindowController: NSWindowController?
     private var geometryCancellable: AnyCancellable?
     private var selectionCancellable: AnyCancellable?
     private var panelMoveObserver: NSObjectProtocol?
@@ -31,7 +44,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupPanel() {
         let panel = ShelfPanel(contentRect: NSRect(x: 0, y: 0, width: ShelfLayout.expandedWidth, height: ShelfLayout.maxHeight))
 
-        let hostingView = ShelfHostingView(rootView: ShelfView(viewModel: viewModel))
+        let shelfView = ShelfView(
+            viewModel: viewModel,
+            openItems: { [weak self] items in
+                self?.openItems(items)
+            },
+            revealItem: { [weak self] item in
+                self?.revealItemInFinder(item)
+            },
+            copyItems: { [weak self] items in
+                self?.copyItemsToPasteboard(items)
+            },
+            quickLookItems: { [weak self] items in
+                self?.showQuickLook(for: items)
+            }
+        )
+        let hostingView = ShelfHostingView(rootView: shelfView)
         hostingView.onDragEntered = { [weak self] in
             self?.viewModel.isDragHovering = true
         }
@@ -48,8 +76,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.viewModel.isDragHovering = false
             self?.viewModel.isExternalDragging = false
         }
-        hostingView.onItemReordered = { [weak self] sourceID, targetIndex in
-            self?.viewModel.moveItem(withID: sourceID, toIndex: targetIndex)
+        hostingView.onItemsReordered = { [weak self] sourceIDs, targetIndex in
+            self?.viewModel.moveItems(withIDs: sourceIDs, toIndex: targetIndex)
             self?.viewModel.isDragHovering = false
             self?.viewModel.isExternalDragging = false
         }
@@ -75,8 +103,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         geometryCancellable = viewModel.objectWillChange
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.updatePanelFrame()
-                self?.updateStatusIcon()
+                DispatchQueue.main.async { [weak self] in
+                    self?.updatePanelFrame()
+                    self?.updateStatusIcon()
+                }
             }
 
         selectionCancellable = viewModel.$selectedIDs
@@ -170,11 +200,39 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if panel.isVisible {
             panel.orderOut(nil)
         } else {
-            panel.dataSource = self
-            panel.delegate = self
-            panel.reloadData()
-            panel.makeKeyAndOrderFront(nil)
+            showQuickLookPanel()
         }
+    }
+
+    private func showQuickLook(for items: [ShelfItem]) {
+        guard !items.isEmpty else { return }
+        viewModel.selectedIDs = Set(items.map(\.id))
+        showQuickLookPanel()
+    }
+
+    private func showQuickLookPanel() {
+        guard !viewModel.selectedItems.isEmpty else { return }
+        let panel = QLPreviewPanel.shared()!
+        panel.dataSource = self
+        panel.delegate = self
+        panel.reloadData()
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    private func openItems(_ items: [ShelfItem]) {
+        for item in items {
+            NSWorkspace.shared.open(item.fileURL)
+        }
+    }
+
+    private func revealItemInFinder(_ item: ShelfItem) {
+        NSWorkspace.shared.activateFileViewerSelecting([item.fileURL])
+    }
+
+    private func copyItemsToPasteboard(_ items: [ShelfItem]) {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.writeObjects(items.map { $0.fileURL as NSURL })
     }
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
@@ -201,6 +259,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         launchItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(launchItem)
 
+        let preferencesItem = NSMenuItem(
+            title: "Preferences...",
+            action: #selector(showPreferences),
+            keyEquivalent: ","
+        )
+        preferencesItem.target = self
+        menu.addItem(preferencesItem)
+
+        let cleanupItem = NSMenuItem(
+            title: "Clean Up Storage...",
+            action: #selector(confirmStorageCleanup),
+            keyEquivalent: ""
+        )
+        cleanupItem.target = self
+        menu.addItem(cleanupItem)
+
         menu.addItem(.separator())
 
         let aboutItem = NSMenuItem(
@@ -226,14 +300,126 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleLaunchAtLogin() {
         do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
-            } else {
-                try SMAppService.mainApp.register()
-            }
+            try setLaunchAtLogin(enabled: SMAppService.mainApp.status != .enabled)
         } catch {
             NSLog("DragDrop: Failed to toggle launch at login: %@", error.localizedDescription)
         }
+    }
+
+    @objc private func showPreferences() {
+        if let preferencesWindowController {
+            preferencesWindowController.showWindow(nil)
+            preferencesWindowController.window?.makeKeyAndOrderFront(nil)
+            activatePreferencesWindow()
+            return
+        }
+
+        let preferencesView = PreferencesView(
+            preferences: preferences,
+            isLaunchAtLoginEnabled: {
+                SMAppService.mainApp.status == .enabled
+            },
+            setLaunchAtLoginEnabled: { [weak self] enabled in
+                guard let self else { throw PreferencesWindowError.appUnavailable }
+                try self.setLaunchAtLogin(enabled: enabled)
+            },
+            loadStorageMetrics: { [weak self] in
+                guard let self else { throw PreferencesWindowError.appUnavailable }
+                return try self.currentStorageMetrics()
+            },
+            cleanNow: { [weak self] in
+                guard let self else { throw PreferencesWindowError.appUnavailable }
+                return try self.cleanUpStorageFromPreferences()
+            }
+        )
+
+        let hostingController = NSHostingController(rootView: preferencesView)
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Preferences"
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        window.center()
+
+        let controller = NSWindowController(window: window)
+        preferencesWindowController = controller
+        controller.showWindow(nil)
+        activatePreferencesWindow()
+    }
+
+    private func activatePreferencesWindow() {
+        if #available(macOS 14.0, *) {
+            NSApp.activate()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    private func setLaunchAtLogin(enabled: Bool) throws {
+        let isEnabled = SMAppService.mainApp.status == .enabled
+        guard isEnabled != enabled else { return }
+
+        if enabled {
+            try SMAppService.mainApp.register()
+        } else {
+            try SMAppService.mainApp.unregister()
+        }
+    }
+
+    @objc private func confirmStorageCleanup() {
+        let alert = NSAlert()
+        alert.messageText = "Clean Up Storage?"
+        alert.informativeText = preferences.cleanupDescription
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Clean Up")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        cleanUpStorage()
+    }
+
+    private func cleanUpStorage() {
+        do {
+            let result = try cleanUpStorageFromPreferences()
+            showStorageCleanupResult(result)
+        } catch {
+            showStorageCleanupError(error)
+        }
+    }
+
+    private func currentStorageMetrics() throws -> ShelfStorageMetrics {
+        try viewModel.storageMetrics()
+    }
+
+    private func cleanUpStorageFromPreferences() throws -> ShelfCleanupResult {
+        let result = try viewModel.cleanupStorage(using: preferences.cleanupPolicy)
+        updatePanelFrame()
+        updateStatusIcon()
+        return result
+    }
+
+    private func showStorageCleanupResult(_ result: ShelfCleanupResult) {
+        let alert = NSAlert()
+        alert.messageText = "Storage Cleaned Up"
+        alert.alertStyle = .informational
+
+        if result.removedItemIDs.isEmpty {
+            alert.informativeText = "No shelf items matched the cleanup policy."
+        } else {
+            let formatter = ByteCountFormatter()
+            formatter.countStyle = .file
+            let reclaimed = formatter.string(fromByteCount: result.reclaimedBytes)
+            alert.informativeText = "Removed \(result.removedItemIDs.count) item(s) and reclaimed \(reclaimed)."
+        }
+
+        alert.runModal()
+    }
+
+    private func showStorageCleanupError(_ error: Error) {
+        let alert = NSAlert()
+        alert.messageText = "Storage Cleanup Failed"
+        alert.informativeText = error.localizedDescription
+        alert.alertStyle = .warning
+        alert.runModal()
     }
 
     @objc private func showAbout() {

@@ -1,15 +1,38 @@
 import AppKit
 
+struct DragPasteboardSnapshot: Equatable {
+    let changeCount: Int
+    let types: Set<NSPasteboard.PasteboardType>
+
+    init(changeCount: Int, types: [NSPasteboard.PasteboardType]) {
+        self.changeCount = changeCount
+        self.types = Set(types)
+    }
+
+    var hasSupportedDropPayload: Bool {
+        !types.isDisjoint(with: [.fileURL, .URL, .legacyFilenames])
+    }
+}
+
+extension NSPasteboard.PasteboardType {
+    static let legacyFilenames = NSPasteboard.PasteboardType("NSFilenamesPboardType")
+}
+
 class GlobalDragMonitor {
     var onDragStarted: (() -> Void)?
     var onDragEnded: (() -> Void)?
 
+    private let pasteboardSnapshotProvider: () -> DragPasteboardSnapshot
     private var monitors: [Any] = []
     private var isDragging = false
     private var lastChangeCount: Int
 
-    init() {
-        lastChangeCount = NSPasteboard(name: .drag).changeCount
+    init(pasteboardSnapshotProvider: @escaping () -> DragPasteboardSnapshot = {
+        let pasteboard = NSPasteboard(name: .drag)
+        return DragPasteboardSnapshot(changeCount: pasteboard.changeCount, types: pasteboard.types ?? [])
+    }) {
+        self.pasteboardSnapshotProvider = pasteboardSnapshotProvider
+        lastChangeCount = pasteboardSnapshotProvider().changeCount
     }
 
     func start() {
@@ -21,11 +44,13 @@ class GlobalDragMonitor {
             self?.handleDragged()
             return event
         } as Any)
-        monitors.append(NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
-            self?.handleMouseUp()
+
+        let pointerEndEvents: NSEvent.EventTypeMask = [.leftMouseUp, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+        monitors.append(NSEvent.addGlobalMonitorForEvents(matching: pointerEndEvents) { [weak self] _ in
+            self?.handlePointerEnded()
         } as Any)
-        monitors.append(NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { [weak self] event in
-            self?.handleMouseUp()
+        monitors.append(NSEvent.addLocalMonitorForEvents(matching: pointerEndEvents) { [weak self] event in
+            self?.handlePointerEnded()
             return event
         } as Any)
     }
@@ -36,22 +61,29 @@ class GlobalDragMonitor {
         isDragging = false
     }
 
-    private func handleDragged() {
-        let pb = NSPasteboard(name: .drag)
-        let currentCount = pb.changeCount
-        guard currentCount != lastChangeCount else { return }
-        lastChangeCount = currentCount
+    func handleDragged() {
+        let snapshot = pasteboardSnapshotProvider()
+        guard snapshot.changeCount != lastChangeCount else { return }
+        lastChangeCount = snapshot.changeCount
 
-        let types = pb.types ?? []
-        guard types.contains(.fileURL) else { return }
-
-        if !isDragging {
-            isDragging = true
-            onDragStarted?()
+        if snapshot.hasSupportedDropPayload {
+            beginDragIfNeeded()
+        } else {
+            endDragIfNeeded()
         }
     }
 
-    private func handleMouseUp() {
+    func handlePointerEnded() {
+        endDragIfNeeded()
+    }
+
+    private func beginDragIfNeeded() {
+        guard !isDragging else { return }
+        isDragging = true
+        onDragStarted?()
+    }
+
+    private func endDragIfNeeded() {
         guard isDragging else { return }
         isDragging = false
         onDragEnded?()

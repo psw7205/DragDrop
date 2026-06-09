@@ -2,18 +2,46 @@ import Foundation
 import AppKit
 import UniformTypeIdentifiers
 
+struct ShelfStorageMetrics: Equatable {
+    let itemCount: Int
+    let totalBytes: Int64
+}
+
+struct ShelfCleanupPolicy: Equatable {
+    let maximumAge: TimeInterval?
+    let maximumTotalBytes: Int64?
+
+    static let manualStorageCleanup = ShelfCleanupPolicy(
+        maximumAge: 30 * 24 * 60 * 60,
+        maximumTotalBytes: 1_000_000_000
+    )
+
+    init(maximumAge: TimeInterval? = nil, maximumTotalBytes: Int64? = nil) {
+        self.maximumAge = maximumAge
+        self.maximumTotalBytes = maximumTotalBytes
+    }
+}
+
+struct ShelfCleanupResult: Equatable {
+    let removedItemIDs: [UUID]
+    let reclaimedBytes: Int64
+}
+
 class ShelfStorage {
     private let storageURL: URL
 
-    init() {
-        let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("DragDrop/Items", isDirectory: true)
+    init(storageURL: URL = ShelfStorage.defaultStorageURL()) {
         do {
-            try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: storageURL, withIntermediateDirectories: true)
         } catch {
             NSLog("DragDrop: Failed to create storage directory: %@", error.localizedDescription)
         }
-        self.storageURL = url
+        self.storageURL = storageURL
+    }
+
+    private static func defaultStorageURL() -> URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("DragDrop/Items", isDirectory: true)
     }
 
     func copyFile(from url: URL) throws -> ShelfItem {
@@ -74,6 +102,46 @@ class ShelfStorage {
         }
     }
 
+    func storageMetrics() throws -> ShelfStorageMetrics {
+        let entries = try persistedEntries()
+        return ShelfStorageMetrics(
+            itemCount: entries.count,
+            totalBytes: entries.reduce(0) { $0 + $1.totalBytes }
+        )
+    }
+
+    func cleanup(using policy: ShelfCleanupPolicy, now: Date = Date()) throws -> ShelfCleanupResult {
+        var entries = try persistedEntries().sorted { $0.createdAt < $1.createdAt }
+        var removedEntries: [PersistedEntry] = []
+
+        if let maximumAge = policy.maximumAge {
+            let cutoff = now.addingTimeInterval(-maximumAge)
+            let expired = entries.filter { $0.createdAt < cutoff }
+            removedEntries.append(contentsOf: expired)
+            let expiredIDs = Set(expired.map(\.id))
+            entries.removeAll { expiredIDs.contains($0.id) }
+        }
+
+        if let maximumTotalBytes = policy.maximumTotalBytes {
+            let limit = max(Int64(0), maximumTotalBytes)
+            var totalBytes = entries.reduce(0) { $0 + $1.totalBytes }
+            while totalBytes > limit, let next = entries.first {
+                removedEntries.append(next)
+                totalBytes -= next.totalBytes
+                entries.removeFirst()
+            }
+        }
+
+        for entry in removedEntries {
+            try FileManager.default.removeItem(at: entry.directoryURL)
+        }
+
+        return ShelfCleanupResult(
+            removedItemIDs: removedEntries.map(\.id),
+            reclaimedBytes: removedEntries.reduce(0) { $0 + $1.totalBytes }
+        )
+    }
+
     func loadPersistedItems() -> [ShelfItem] {
         let fileManager = FileManager.default
         guard let directories = try? fileManager.contentsOfDirectory(
@@ -131,6 +199,54 @@ class ShelfStorage {
         }
 
         return loaded.sorted { $0.addedAt < $1.addedAt }
+    }
+
+    private struct PersistedEntry {
+        let id: UUID
+        let directoryURL: URL
+        let createdAt: Date
+        let totalBytes: Int64
+    }
+
+    private func persistedEntries() throws -> [PersistedEntry] {
+        let fileManager = FileManager.default
+        let directories = try fileManager.contentsOfDirectory(
+            at: storageURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )
+
+        var entries: [PersistedEntry] = []
+        for directory in directories {
+            guard let values = try? directory.resourceValues(forKeys: [.isDirectoryKey]),
+                  values.isDirectory == true,
+                  let uuid = UUID(uuidString: directory.lastPathComponent) else {
+                continue
+            }
+
+            let files = try fileManager.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: [.creationDateKey, .fileSizeKey],
+                options: [.skipsHiddenFiles]
+            )
+            guard !files.isEmpty else { continue }
+
+            let createdAt = files.compactMap {
+                try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate
+            }.min() ?? Date()
+            let totalBytes = files.reduce(Int64(0)) { total, url in
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                return total + Int64(size)
+            }
+
+            entries.append(PersistedEntry(
+                id: uuid,
+                directoryURL: directory,
+                createdAt: createdAt,
+                totalBytes: totalBytes
+            ))
+        }
+        return entries
     }
 
     func isOwnFile(_ url: URL) -> Bool {

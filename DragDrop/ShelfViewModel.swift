@@ -17,27 +17,73 @@ class ShelfViewModel: ObservableObject {
     @Published var isManuallyExpanded = false
     @Published var lastErrorMessage: String?
     @Published var showDeleteAllConfirmation = false
+    @Published var query = ""
+    @Published var sortMode: ShelfSortMode = .manual
     @Published private(set) var pendingAddCount = 0
 
     var displayState: ShelfDisplayState {
         if isDragHovering { return .expanded }
-        if isExternalDragging { return .indicator }
-        if isManuallyHidden { return .hidden }
+        if isManuallyHidden { return isExternalDragging ? .indicator : .hidden }
         if !items.isEmpty { return .expanded }
         if pendingAddCount > 0 { return .expanded }
         if lastErrorMessage != nil { return .expanded }
         if showDeleteAllConfirmation { return .expanded }
         if isManuallyExpanded { return .expanded }
+        if isExternalDragging { return .indicator }
         return .hidden
     }
 
     var expandedHeight: CGFloat {
         if items.isEmpty { return ShelfLayout.minHeight }
-        let rows = Int(ceil(Double(items.count) / Double(ShelfLayout.columns)))
+        let rows = Int(ceil(Double(max(visibleItems.count, 1)) / Double(ShelfLayout.columns)))
         let gridHeight = CGFloat(rows) * ShelfLayout.itemHeight
             + CGFloat(max(0, rows - 1)) * ShelfLayout.gridSpacing
             + ShelfLayout.gridPadding * 2
-        return min(max(ShelfLayout.headerHeight + gridHeight, ShelfLayout.minHeight), ShelfLayout.maxHeight)
+        let chromeHeight = ShelfLayout.headerHeight + ShelfLayout.controlsHeight
+        return min(max(chromeHeight + gridHeight, ShelfLayout.minHeight), ShelfLayout.maxHeight)
+    }
+
+    var visibleItems: [ShelfItem] {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filteredItems: [ShelfItem]
+
+        if trimmedQuery.isEmpty {
+            filteredItems = items
+        } else {
+            filteredItems = items.filter { item in
+                metadata(for: item).searchText.range(
+                    of: trimmedQuery,
+                    options: [.caseInsensitive, .diacriticInsensitive]
+                ) != nil
+            }
+        }
+
+        switch sortMode {
+        case .manual:
+            return filteredItems
+        case .added:
+            return filteredItems.sorted {
+                if $0.addedAt != $1.addedAt { return $0.addedAt > $1.addedAt }
+                return compareNames($0, $1)
+            }
+        case .name:
+            return filteredItems.sorted(by: compareNames)
+        case .kind:
+            return filteredItems.sorted {
+                let leftKind = metadata(for: $0).kind
+                let rightKind = metadata(for: $1).kind
+                let kindOrder = leftKind.localizedStandardCompare(rightKind)
+                if kindOrder != .orderedSame { return kindOrder == .orderedAscending }
+                return compareNames($0, $1)
+            }
+        case .size:
+            return filteredItems.sorted {
+                let leftSize = metadata(for: $0).sizeBytes
+                let rightSize = metadata(for: $1).sizeBytes
+                if leftSize != rightSize { return leftSize > rightSize }
+                return compareNames($0, $1)
+            }
+        }
     }
 
     // MARK: - Storage
@@ -121,12 +167,62 @@ class ShelfViewModel: ObservableObject {
         toRemove.forEach { removeItem($0) }
     }
 
+    @discardableResult
+    func cleanupStorage(using policy: ShelfCleanupPolicy, now: Date = Date()) throws -> ShelfCleanupResult {
+        let result = try storage.cleanup(using: policy, now: now)
+        let removedIDs = Set(result.removedItemIDs)
+        items.removeAll { removedIDs.contains($0.id) }
+        selectedIDs.subtract(removedIDs)
+        return result
+    }
+
+    func storageMetrics() throws -> ShelfStorageMetrics {
+        try storage.storageMetrics()
+    }
+
+    func metadata(for item: ShelfItem) -> ShelfItemMetadata {
+        ShelfItemMetadata.make(for: item)
+    }
+
+    func contextMenuItems(for targetID: UUID) -> [ShelfItem] {
+        guard let target = items.first(where: { $0.id == targetID }) else { return [] }
+        guard selectedIDs.contains(targetID) else {
+            selectOnly(targetID)
+            return [target]
+        }
+        return selectedItems
+    }
+
+    func dragItems(for sourceID: UUID) -> [ShelfItem] {
+        guard let source = items.first(where: { $0.id == sourceID }) else { return [] }
+        guard selectedIDs.contains(sourceID) else { return [source] }
+        return selectedItems
+    }
+
     func moveItem(withID id: UUID, toIndex targetIndex: Int) {
-        guard let sourceIndex = items.firstIndex(where: { $0.id == id }) else { return }
-        let clamped = min(max(targetIndex, 0), items.count - 1)
-        guard sourceIndex != clamped else { return }
-        let item = items.remove(at: sourceIndex)
-        items.insert(item, at: clamped)
+        moveItems(withIDs: [id], toIndex: targetIndex)
+    }
+
+    func moveItems(withIDs ids: [UUID], toIndex targetIndex: Int) {
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard sortMode == .manual, trimmedQuery.isEmpty else { return }
+
+        var seenIDs: Set<UUID> = []
+        let uniqueIDs = ids.filter { seenIDs.insert($0).inserted }
+        guard !uniqueIDs.isEmpty else { return }
+
+        let idSet = Set(uniqueIDs)
+        let movingItems = items.filter { idSet.contains($0.id) }
+        guard !movingItems.isEmpty else { return }
+
+        let remainingItems = items.filter { !idSet.contains($0.id) }
+        let insertionIndex = min(max(targetIndex, 0), remainingItems.count)
+        let reorderedItems = Array(remainingItems[..<insertionIndex])
+            + movingItems
+            + Array(remainingItems[insertionIndex...])
+
+        guard reorderedItems.map(\.id) != items.map(\.id) else { return }
+        items = reorderedItems
     }
 
     func requestRemoveSelected() {
@@ -217,5 +313,9 @@ class ShelfViewModel: ObservableObject {
 
     var selectedItems: [ShelfItem] {
         items.filter { selectedIDs.contains($0.id) }
+    }
+
+    private func compareNames(_ lhs: ShelfItem, _ rhs: ShelfItem) -> Bool {
+        lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
     }
 }

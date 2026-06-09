@@ -1,4 +1,4 @@
-# CLAUDE.md — DragDrop
+# AGENTS.md — DragDrop
 
 ## Overview
 
@@ -9,11 +9,10 @@
 
 ```bash
 open DragDrop.xcodeproj  # Xcode에서 ⌘R
-xcodebuild test -project DragDrop.xcodeproj -scheme DragDrop -configuration Debug -destination 'platform=macOS'
 ```
 
 - macOS 타겟, Swift/SwiftUI
-- 테스트 타겟: `DragDropTests`
+- `DragDropTests` 테스트 타겟 있음
 
 ## Architecture
 

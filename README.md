@@ -8,15 +8,17 @@
 - **플로팅 셸프** — 화면 우측에 항상 떠 있는 borderless 패널 (Dock 아이콘 없음)
 - **자동 표시/숨김** — 파일 드래그 감지 시 indicator 표시, 호버 시 셸프 확장, 비어 있으면 자동 숨김
 - **드래그 인** — 파일을 셸프 위에 드롭하면 복사본 저장
+- **링크 저장** — 웹 URL 드롭 시 `.webloc` 파일로 저장
 - **드래그 아웃** — 셸프 아이템을 드래그해서 다른 앱으로 전달
 - **다중 선택** — ⌘+클릭으로 여러 파일 선택 후 일괄 드래그
 - **패널 이동** — 헤더 영역 드래그로 패널 위치 조정
+- **보관 파일 정리** — 메뉴바 우클릭 메뉴에서 30일 초과 항목과 1GB 초과 보관 파일 정리
 - **모든 Space에서 동작** — 가상 데스크톱 전환해도 항상 표시
 
 ## Requirements
 
-- macOS 26.2+
-- Xcode 26.3+
+- macOS 13.0+
+- Xcode 26.2+
 
 ## Build & Run
 
@@ -40,7 +42,7 @@ cp -R ~/Library/Developer/Xcode/DerivedData/DragDrop-*/Build/Products/Release/Dr
 │         │                                           │
 │         ▼                                           │
 │  GlobalDragMonitor가 드래그 감지                      │
-│  (NSPasteboard.drag의 changeCount 변화 + fileURL)    │
+│  (NSPasteboard.drag의 changeCount 변화 + drop type)  │
 │         │                                           │
 │         ▼                                           │
 │  ┌─────────┐   호버   ┌──────────┐                   │
@@ -59,10 +61,10 @@ cp -R ~/Library/Developer/Xcode/DerivedData/DragDrop-*/Build/Products/Release/Dr
 ### 상세 흐름
 
 1. **앱 시작** — `AppDelegate`가 `ShelfPanel`(투명 borderless NSPanel)과 `GlobalDragMonitor`를 초기화
-2. **드래그 감지** — `GlobalDragMonitor`가 `leftMouseDragged` 글로벌 이벤트를 감시하고, 0.3초 후 드래그 페이스트보드에 `fileURL` 타입이 있는지 확인
+2. **드래그 감지** — `GlobalDragMonitor`가 `leftMouseDragged` 이벤트와 `NSPasteboard.drag`의 `changeCount` 변화를 감시하고, `fileURL`, `URL`, legacy filename 타입을 확인
 3. **indicator 표시** — 파일 드래그가 확인되면 화면 우측에 60×60 아이콘 표시
 4. **셸프 확장** — 패널 위로 호버하면 `ShelfHostingView`가 `draggingEntered`를 수신, 200px 너비의 셸프로 확장
-5. **파일 저장** — 드롭된 파일은 `~/Library/Application Support/DragDrop/Items/{UUID}/`에 복사본으로 저장
+5. **파일 저장** — 드롭된 파일은 `~/Library/Application Support/DragDrop/Items/{UUID}/`에 복사본으로 저장하고, 웹 URL은 `.webloc` 파일로 저장
 6. **드래그 아웃** — `DragSourceView`(NSViewRepresentable)가 `NSDraggingSource`를 구현, 4px 이상 드래그하면 드래그 세션 시작
 7. **마우스 업** — 드래그 없이 클릭하면 선택 처리 (⌘+클릭으로 다중 선택)
 
@@ -79,7 +81,7 @@ DragDrop/
 ├── ShelfViewModel.swift     # 상태 관리 (items, selectedIDs, displayState)
 ├── ShelfPanel.swift         # borderless NSPanel — statusBar+1 레벨, 모든 Space에서 표시
 ├── ShelfHostingView.swift   # NSHostingView 래퍼 — 파일 드롭 수신 (NSDraggingDestination)
-├── GlobalDragMonitor.swift  # 시스템 전역 마우스 이벤트 감지 — 파일 드래그 시작/종료 콜백
+├── GlobalDragMonitor.swift  # 시스템 전역 마우스 이벤트 감지 — 파일/URL 드래그 시작·종료 콜백
 ├── ShelfView.swift          # SwiftUI — 상태별 UI (hidden/indicator/expanded)
 ├── ShelfItemView.swift      # SwiftUI — 개별 아이템 셀 (아이콘 + 파일명 + 삭제 버튼)
 ├── ShelfItem.swift          # 모델 — id, fileName, fileURL, icon, addedAt
@@ -108,6 +110,7 @@ DragDrop/
 ```
 
 아이템 삭제 시 해당 UUID 디렉토리 전체가 제거된다.
+메뉴바 우클릭 메뉴의 `Clean Up Storage...`는 30일 초과 항목을 제거하고, 저장소가 1GB를 넘으면 오래된 항목부터 제거한다.
 
 ## Tech Stack
 

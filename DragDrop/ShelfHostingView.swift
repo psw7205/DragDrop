@@ -6,7 +6,7 @@ class ShelfHostingView: NSView {
     var onDragExited: (() -> Void)?
     var onFilesDropped: (([URL]) -> Void)?
     var onLinkDropped: ((URL) -> Void)?
-    var onItemReordered: ((UUID, Int) -> Void)?
+    var onItemsReordered: (([UUID], Int) -> Void)?
 
     init<V: View>(rootView: V) {
         super.init(frame: .zero)
@@ -19,7 +19,7 @@ class ShelfHostingView: NSView {
             hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
             hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
-        registerForDraggedTypes([.fileURL, .URL, .shelfItemID])
+        registerForDraggedTypes([.fileURL, .URL, .shelfItemID, .shelfItemIDs])
     }
 
     @available(*, unavailable)
@@ -27,6 +27,9 @@ class ShelfHostingView: NSView {
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         onDragEntered?()
+        if hasShelfItems(sender.draggingPasteboard) {
+            return .move
+        }
         return .copy
     }
 
@@ -35,7 +38,7 @@ class ShelfHostingView: NSView {
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        if sender.draggingPasteboard.types?.contains(.shelfItemID) == true {
+        if hasShelfItems(sender.draggingPasteboard) {
             return .move
         }
         return .copy
@@ -45,11 +48,11 @@ class ShelfHostingView: NSView {
         let pasteboard = sender.draggingPasteboard
 
         // 내부 리오더 체크 (최우선)
-        if let idString = pasteboard.string(forType: .shelfItemID),
-           let sourceID = UUID(uuidString: idString) {
+        let shelfItemIDs = parseShelfItemIDs(from: pasteboard)
+        if !shelfItemIDs.isEmpty {
             let location = convert(sender.draggingLocation, from: nil)
             let targetIndex = gridIndex(from: location)
-            onItemReordered?(sourceID, targetIndex)
+            onItemsReordered?(shelfItemIDs, targetIndex)
             return true
         }
 
@@ -75,8 +78,28 @@ class ShelfHostingView: NSView {
         return false
     }
 
+    private func hasShelfItems(_ pasteboard: NSPasteboard) -> Bool {
+        guard let types = pasteboard.types else { return false }
+        return types.contains(.shelfItemIDs) || types.contains(.shelfItemID)
+    }
+
+    private func parseShelfItemIDs(from pasteboard: NSPasteboard) -> [UUID] {
+        if let payload = pasteboard.string(forType: .shelfItemIDs) {
+            return payload
+                .split(whereSeparator: \.isNewline)
+                .compactMap { UUID(uuidString: String($0)) }
+        }
+
+        if let idString = pasteboard.string(forType: .shelfItemID),
+           let id = UUID(uuidString: idString) {
+            return [id]
+        }
+
+        return []
+    }
+
     private func gridIndex(from point: NSPoint) -> Int {
-        let headerHeight: CGFloat = ShelfLayout.headerHeight
+        let chromeHeight: CGFloat = ShelfLayout.headerHeight + ShelfLayout.controlsHeight
         let padding: CGFloat = ShelfLayout.gridPadding
         let itemW: CGFloat = ShelfLayout.itemWidth
         let itemH: CGFloat = ShelfLayout.itemHeight
@@ -85,7 +108,7 @@ class ShelfHostingView: NSView {
 
         let viewHeight = bounds.height
         let y = viewHeight - point.y
-        let contentY = y - headerHeight - padding
+        let contentY = y - chromeHeight - padding
         let x = point.x - padding
 
         guard contentY >= 0, x >= 0 else { return 0 }

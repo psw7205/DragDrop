@@ -1,12 +1,16 @@
 import SwiftUI
 import ImageIO
+import AppKit
 
 struct ShelfItemView: View {
     let item: ShelfItem
     let isSelected: Bool
     let dragURLs: [URL]
+    let dragItemIDs: [UUID]
+    let metadata: ShelfItemMetadata?
     let onRemove: () -> Void
     let onTap: (NSEvent.ModifierFlags) -> Void
+    let contextMenu: () -> NSMenu
 
     private func thumbnail(for url: URL, maxSize: CGFloat = 96) -> NSImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
@@ -69,8 +73,16 @@ struct ShelfItemView: View {
                     .font(.system(size: 10))
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
+
+                if let metadata {
+                    Text(metadata.detailText)
+                        .font(.system(size: 8))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
-            .frame(width: 76, height: 80)
+            .frame(width: 76, height: ShelfLayout.itemHeight - 4)
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(isSelected ? Color.accentColor.opacity(0.3) : Color.clear)
@@ -83,8 +95,9 @@ struct ShelfItemView: View {
                 DragSourceView(
                     urls: dragURLs,
                     icon: item.icon,
-                    itemID: item.id,
-                    onClick: onTap
+                    itemIDs: dragItemIDs,
+                    onClick: onTap,
+                    contextMenu: contextMenu
                 )
             )
 
@@ -96,5 +109,6 @@ struct ShelfItemView: View {
             .buttonStyle(.plain)
         }
         .frame(width: ShelfLayout.itemWidth, height: ShelfLayout.itemHeight)
+        .help(metadata?.tooltipText ?? item.displayName)
     }
 }

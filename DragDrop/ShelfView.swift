@@ -1,12 +1,47 @@
 import SwiftUI
+import AppKit
+
+private final class ShelfActionMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(title: String, handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(performHandler), keyEquivalent: "")
+        target = self
+    }
+
+    required init(coder: NSCoder) { fatalError() }
+
+    @objc private func performHandler() {
+        handler()
+    }
+}
 
 struct ShelfView: View {
     @ObservedObject var viewModel: ShelfViewModel
+    private let openItems: ([ShelfItem]) -> Void
+    private let revealItem: (ShelfItem) -> Void
+    private let copyItems: ([ShelfItem]) -> Void
+    private let quickLookItems: ([ShelfItem]) -> Void
 
     private let columns = Array(
         repeating: GridItem(.fixed(ShelfLayout.itemWidth), spacing: ShelfLayout.gridSpacing),
         count: ShelfLayout.columns
     )
+
+    init(
+        viewModel: ShelfViewModel,
+        openItems: @escaping ([ShelfItem]) -> Void = { _ in },
+        revealItem: @escaping (ShelfItem) -> Void = { _ in },
+        copyItems: @escaping ([ShelfItem]) -> Void = { _ in },
+        quickLookItems: @escaping ([ShelfItem]) -> Void = { _ in }
+    ) {
+        self.viewModel = viewModel
+        self.openItems = openItems
+        self.revealItem = revealItem
+        self.copyItems = copyItems
+        self.quickLookItems = quickLookItems
+    }
 
     var body: some View {
         Group {
@@ -66,7 +101,12 @@ struct ShelfView: View {
             if viewModel.items.isEmpty {
                 emptyState
             } else {
-                itemGrid
+                controls
+                if viewModel.visibleItems.isEmpty {
+                    searchEmptyState
+                } else {
+                    itemGrid
+                }
             }
         }
         .frame(width: ShelfLayout.expandedWidth, height: viewModel.expandedHeight)
@@ -116,19 +156,90 @@ struct ShelfView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private var controls: some View {
+        VStack(spacing: 5) {
+            HStack(spacing: 5) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 12, height: 20)
+
+                TextField("Search", text: $viewModel.query)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 11))
+                    .lineLimit(1)
+                    .frame(height: 20)
+            }
+            .padding(.horizontal, 7)
+            .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+
+            HStack(spacing: 6) {
+                sortMenu
+                Spacer()
+                Text("\(viewModel.visibleItems.count)/\(viewModel.items.count)")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .monospacedDigit()
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.bottom, 6)
+        .frame(height: ShelfLayout.controlsHeight)
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            ForEach(ShelfSortMode.allCases) { mode in
+                Button {
+                    viewModel.sortMode = mode
+                } label: {
+                    if viewModel.sortMode == mode {
+                        Label(mode.title, systemImage: "checkmark")
+                    } else {
+                        Text(mode.title)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.system(size: 9))
+                Text(viewModel.sortMode.title)
+                    .font(.system(size: 10))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.secondary)
+            .frame(height: 18)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var searchEmptyState: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 20))
+                .foregroundStyle(.tertiary)
+            Text("No matches")
+                .font(.system(size: 11))
+                .foregroundStyle(.tertiary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var itemGrid: some View {
-        let selectedURLs = viewModel.selectedItems.map(\.fileURL)
-        return ScrollView {
+        ScrollView {
             LazyVGrid(columns: columns, spacing: 4) {
-                ForEach(viewModel.items) { item in
+                ForEach(viewModel.visibleItems) { item in
                     let isSelected = viewModel.selectedIDs.contains(item.id)
-                    let dragURLs = isSelected
-                        ? selectedURLs
-                        : [item.fileURL]
+                    let dragItems = viewModel.dragItems(for: item.id)
                     ShelfItemView(
                         item: item,
                         isSelected: isSelected,
-                        dragURLs: dragURLs,
+                        dragURLs: dragItems.map(\.fileURL),
+                        dragItemIDs: dragItems.map(\.id),
+                        metadata: viewModel.metadata(for: item),
                         onRemove: { viewModel.removeItem(item) },
                         onTap: { modifiers in
                             if modifiers.contains(.command) {
@@ -136,11 +247,50 @@ struct ShelfView: View {
                             } else {
                                 viewModel.selectOnly(item.id)
                             }
-                        }
+                        },
+                        contextMenu: { contextMenu(for: item) }
                     )
                 }
             }
             .padding(ShelfLayout.gridPadding)
         }
+    }
+
+    private func contextMenu(for item: ShelfItem) -> NSMenu {
+        let menu = NSMenu()
+        let contextItems = viewModel.contextMenuItems(for: item.id)
+        guard !contextItems.isEmpty else { return menu }
+
+        if contextItems.count > 1 {
+            menu.addItem(ShelfActionMenuItem(title: "Quick Look Selected") {
+                quickLookItems(contextItems)
+            })
+            menu.addItem(ShelfActionMenuItem(title: "Copy Selected") {
+                copyItems(contextItems)
+            })
+            menu.addItem(.separator())
+            menu.addItem(ShelfActionMenuItem(title: "Delete Selected") {
+                viewModel.requestRemoveSelected()
+            })
+        } else if let singleItem = contextItems.first {
+            menu.addItem(ShelfActionMenuItem(title: "Open") {
+                openItems([singleItem])
+            })
+            menu.addItem(ShelfActionMenuItem(title: "Quick Look") {
+                quickLookItems([singleItem])
+            })
+            menu.addItem(ShelfActionMenuItem(title: "Reveal in Finder") {
+                revealItem(singleItem)
+            })
+            menu.addItem(ShelfActionMenuItem(title: "Copy") {
+                copyItems([singleItem])
+            })
+            menu.addItem(.separator())
+            menu.addItem(ShelfActionMenuItem(title: "Delete") {
+                viewModel.removeItem(singleItem)
+            })
+        }
+
+        return menu
     }
 }
