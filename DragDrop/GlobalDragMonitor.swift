@@ -19,10 +19,11 @@ extension NSPasteboard.PasteboardType {
 }
 
 class GlobalDragMonitor {
-    var onDragStarted: (() -> Void)?
+    var onDragStarted: ((NSPoint) -> Void)?
     var onDragEnded: (() -> Void)?
 
     private let pasteboardSnapshotProvider: () -> DragPasteboardSnapshot
+    private let mouseLocationProvider: () -> NSPoint
     private var monitors: [Any] = []
     private var isDragging = false
     private var lastChangeCount: Int
@@ -30,8 +31,11 @@ class GlobalDragMonitor {
     init(pasteboardSnapshotProvider: @escaping () -> DragPasteboardSnapshot = {
         let pasteboard = NSPasteboard(name: .drag)
         return DragPasteboardSnapshot(changeCount: pasteboard.changeCount, types: pasteboard.types ?? [])
+    }, mouseLocationProvider: @escaping () -> NSPoint = {
+        NSEvent.mouseLocation
     }) {
         self.pasteboardSnapshotProvider = pasteboardSnapshotProvider
+        self.mouseLocationProvider = mouseLocationProvider
         lastChangeCount = pasteboardSnapshotProvider().changeCount
     }
 
@@ -67,7 +71,7 @@ class GlobalDragMonitor {
         lastChangeCount = snapshot.changeCount
 
         if snapshot.hasSupportedDropPayload {
-            beginDragIfNeeded()
+            beginDragIfNeeded(at: mouseLocationProvider())
         } else {
             endDragIfNeeded()
         }
@@ -77,10 +81,10 @@ class GlobalDragMonitor {
         endDragIfNeeded()
     }
 
-    private func beginDragIfNeeded() {
+    private func beginDragIfNeeded(at location: NSPoint) {
         guard !isDragging else { return }
         isDragging = true
-        onDragStarted?()
+        onDragStarted?(location)
     }
 
     private func endDragIfNeeded() {

@@ -40,7 +40,7 @@ final class GlobalDragMonitorTests: XCTestCase {
             DragPasteboardSnapshot(changeCount: 1, types: [.fileURL]),
         ])
         var startCount = 0
-        monitor.onDragStarted = { startCount += 1 }
+        monitor.onDragStarted = { _ in startCount += 1 }
 
         monitor.handleDragged()
         monitor.handleDragged()
@@ -54,7 +54,7 @@ final class GlobalDragMonitorTests: XCTestCase {
             DragPasteboardSnapshot(changeCount: 1, types: [.URL]),
         ])
         var didStart = false
-        monitor.onDragStarted = { didStart = true }
+        monitor.onDragStarted = { _ in didStart = true }
 
         monitor.handleDragged()
 
@@ -68,11 +68,27 @@ final class GlobalDragMonitorTests: XCTestCase {
             DragPasteboardSnapshot(changeCount: 1, types: [legacyFilenameType]),
         ])
         var didStart = false
-        monitor.onDragStarted = { didStart = true }
+        monitor.onDragStarted = { _ in didStart = true }
 
         monitor.handleDragged()
 
         XCTAssertTrue(didStart)
+    }
+
+    func testStartsDragWithCurrentMouseLocation() {
+        let monitor = makeMonitor(
+            snapshots: [
+                DragPasteboardSnapshot(changeCount: 0, types: []),
+                DragPasteboardSnapshot(changeCount: 1, types: [.fileURL]),
+            ],
+            mouseLocations: [NSPoint(x: 20, y: 30)]
+        )
+        var startedLocations: [NSPoint] = []
+        monitor.onDragStarted = { startedLocations.append($0) }
+
+        monitor.handleDragged()
+
+        XCTAssertEqual(startedLocations, [NSPoint(x: 20, y: 30)])
     }
 
     func testEndsWhenPasteboardChangesToUnsupportedPayload() {
@@ -105,14 +121,23 @@ final class GlobalDragMonitorTests: XCTestCase {
         XCTAssertEqual(endCount, 1)
     }
 
-    private func makeMonitor(snapshots: [DragPasteboardSnapshot]) -> GlobalDragMonitor {
+    private func makeMonitor(
+        snapshots: [DragPasteboardSnapshot],
+        mouseLocations: [NSPoint] = []
+    ) -> GlobalDragMonitor {
         var snapshots = snapshots
-        return GlobalDragMonitor {
-            guard !snapshots.isEmpty else {
-                XCTFail("Unexpected pasteboard snapshot request")
-                return DragPasteboardSnapshot(changeCount: -1, types: [])
+        var mouseLocations = mouseLocations
+        return GlobalDragMonitor(
+            pasteboardSnapshotProvider: {
+                guard !snapshots.isEmpty else {
+                    XCTFail("Unexpected pasteboard snapshot request")
+                    return DragPasteboardSnapshot(changeCount: -1, types: [])
+                }
+                return snapshots.removeFirst()
+            },
+            mouseLocationProvider: {
+                mouseLocations.isEmpty ? .zero : mouseLocations.removeFirst()
             }
-            return snapshots.removeFirst()
-        }
+        )
     }
 }

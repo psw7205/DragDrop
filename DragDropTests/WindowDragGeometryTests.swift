@@ -2,6 +2,58 @@ import XCTest
 @testable import DragDrop
 
 final class WindowDragGeometryTests: XCTestCase {
+    func testPlacesAnchoredFrameNearMouseWithGap() {
+        let screen = WindowDragScreen(
+            frame: NSRect(x: 0, y: 0, width: 500, height: 500),
+            visibleFrame: NSRect(x: 0, y: 0, width: 500, height: 500)
+        )
+
+        let frame = WindowDragGeometry.anchoredFrame(
+            size: NSSize(width: 60, height: 60),
+            near: NSPoint(x: 200, y: 300),
+            gap: 12,
+            screens: [screen]
+        )
+
+        XCTAssertEqual(frame, NSRect(x: 212, y: 228, width: 60, height: 60))
+    }
+
+    func testClampsAnchoredFrameWithinVisibleScreen() {
+        let screen = WindowDragScreen(
+            frame: NSRect(x: 0, y: 0, width: 500, height: 500),
+            visibleFrame: NSRect(x: 0, y: 0, width: 500, height: 500)
+        )
+
+        let frame = WindowDragGeometry.anchoredFrame(
+            size: NSSize(width: 60, height: 60),
+            near: NSPoint(x: 490, y: 10),
+            gap: 12,
+            screens: [screen]
+        )
+
+        XCTAssertEqual(frame, NSRect(x: 440, y: 0, width: 60, height: 60))
+    }
+
+    func testAnchoredFrameUsesScreenUnderMouse() {
+        let primary = WindowDragScreen(
+            frame: NSRect(x: 0, y: 0, width: 100, height: 100),
+            visibleFrame: NSRect(x: 0, y: 0, width: 100, height: 100)
+        )
+        let secondary = WindowDragScreen(
+            frame: NSRect(x: 100, y: 0, width: 100, height: 100),
+            visibleFrame: NSRect(x: 100, y: 0, width: 100, height: 100)
+        )
+
+        let frame = WindowDragGeometry.anchoredFrame(
+            size: NSSize(width: 40, height: 40),
+            near: NSPoint(x: 150, y: 50),
+            gap: 6,
+            screens: [primary, secondary]
+        )
+
+        XCTAssertEqual(frame, NSRect(x: 156, y: 4, width: 40, height: 40))
+    }
+
     func testClampKeepsOriginWithinScreenUnderMouse() {
         let screen = WindowDragScreen(
             frame: NSRect(x: 0, y: 0, width: 100, height: 100),

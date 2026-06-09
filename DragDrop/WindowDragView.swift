@@ -13,6 +13,24 @@ struct WindowDragScreen: Equatable {
 }
 
 enum WindowDragGeometry {
+    static func anchoredFrame(
+        size: NSSize,
+        near mouseLocation: NSPoint,
+        gap: CGFloat,
+        screens: [WindowDragScreen]
+    ) -> NSRect {
+        let proposed = NSRect(
+            x: mouseLocation.x + gap,
+            y: mouseLocation.y - size.height - gap,
+            width: size.width,
+            height: size.height
+        )
+        return NSRect(
+            origin: clampedOrigin(for: proposed, mouseLocation: mouseLocation, screens: screens),
+            size: size
+        )
+    }
+
     static func clampedOrigin(
         for frame: NSRect,
         mouseLocation: NSPoint,

@@ -224,6 +224,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelMoveObserver: NSObjectProtocol?
     private var panelCenterY: CGFloat?
     private var panelCenterX: CGFloat?
+    private var dragAnchorLocation: NSPoint?
     private var preferredScreenID: NSNumber?
     private var isUpdatingFrame = false
     private var hotKeyMonitor: CarbonHotKeyMonitor?
@@ -262,19 +263,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.viewModel.isDragHovering = false
         }
         hostingView.onFilesDropped = { [weak self] urls in
-            self?.viewModel.addFilesAsync(from: urls)
-            self?.viewModel.isDragHovering = false
-            self?.viewModel.isExternalDragging = false
+            guard let self else { return }
+            viewModel.addFilesAsync(from: urls)
+            finishExternalDragPresentation()
         }
         hostingView.onLinkDropped = { [weak self] url in
-            self?.viewModel.addLinkAsync(from: url)
-            self?.viewModel.isDragHovering = false
-            self?.viewModel.isExternalDragging = false
+            guard let self else { return }
+            viewModel.addLinkAsync(from: url)
+            finishExternalDragPresentation()
         }
         hostingView.onItemsReordered = { [weak self] sourceIDs, targetIndex in
-            self?.viewModel.moveItems(withIDs: sourceIDs, toIndex: targetIndex)
-            self?.viewModel.isDragHovering = false
-            self?.viewModel.isExternalDragging = false
+            guard let self else { return }
+            viewModel.moveItems(withIDs: sourceIDs, toIndex: targetIndex)
+            finishExternalDragPresentation()
         }
 
         panel.onSelectAll = { [weak self] in
@@ -332,14 +333,35 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupDragMonitor() {
         let monitor = GlobalDragMonitor()
-        monitor.onDragStarted = { [weak self] in
-            self?.viewModel.isExternalDragging = true
+        monitor.onDragStarted = { [weak self] location in
+            self?.handleExternalDragStarted(at: location)
         }
         monitor.onDragEnded = { [weak self] in
-            self?.viewModel.isExternalDragging = false
+            self?.handleExternalDragEnded()
         }
         monitor.start()
         self.dragMonitor = monitor
+    }
+
+    private func handleExternalDragStarted(at location: NSPoint) {
+        if viewModel.displayState == .hidden {
+            dragAnchorLocation = location
+            panelCenterX = nil
+            panelCenterY = nil
+            preferredScreenID = screenID(for: screen(containing: location))
+        }
+        viewModel.isExternalDragging = true
+    }
+
+    private func handleExternalDragEnded() {
+        viewModel.isExternalDragging = false
+        dragAnchorLocation = nil
+    }
+
+    private func finishExternalDragPresentation() {
+        viewModel.isDragHovering = false
+        viewModel.isExternalDragging = false
+        dragAnchorLocation = nil
     }
 
     private func setupGlobalHotkey() {
@@ -631,11 +653,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func updatePanelFrame() {
-        guard let panel, let screen = resolvedScreen(for: panel) else { return }
+        guard let panel else { return }
+        let anchorLocation = dragAnchorLocation
+        guard let screen = resolvedScreen(for: panel, preferredLocation: anchorLocation) else { return }
 
         if viewModel.displayState == .hidden {
             panelCenterX = nil
             panelCenterY = nil
+            dragAnchorLocation = nil
             panel.ignoresMouseEvents = true
             panel.orderOut(nil)
             return
@@ -649,31 +674,50 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let isIndicator = viewModel.displayState == .indicator
         let w: CGFloat = isIndicator ? ShelfLayout.indicatorSize : ShelfLayout.expandedWidth
         let h: CGFloat = isIndicator ? ShelfLayout.indicatorSize : viewModel.expandedHeight
-        let rightEdge = screen.visibleFrame.maxX - ShelfLayout.screenEdgeMargin
+        let size = NSSize(width: w, height: h)
 
-        let x: CGFloat
-        if viewModel.displayState == .indicator {
-            x = rightEdge - w
-        } else if let savedCX = panelCenterX {
-            let candidateX = savedCX - w / 2
-            x = min(max(candidateX, screen.visibleFrame.minX), screen.visibleFrame.maxX - w)
+        let frame: NSRect
+        if let anchorLocation,
+           isIndicator || (panelCenterX == nil && panelCenterY == nil) {
+            frame = WindowDragGeometry.anchoredFrame(
+                size: size,
+                near: anchorLocation,
+                gap: ShelfLayout.dragAnchorGap,
+                screens: windowDragScreens()
+            )
         } else {
-            x = rightEdge - w
+            let rightEdge = screen.visibleFrame.maxX - ShelfLayout.screenEdgeMargin
+
+            let x: CGFloat
+            if isIndicator {
+                x = rightEdge - w
+            } else if let savedCX = panelCenterX {
+                let candidateX = savedCX - w / 2
+                x = min(max(candidateX, screen.visibleFrame.minX), screen.visibleFrame.maxX - w)
+            } else {
+                x = rightEdge - w
+            }
+
+            let currentCenterY = panelCenterY ?? screen.visibleFrame.midY
+            let minY = screen.visibleFrame.minY
+            let maxY = screen.visibleFrame.maxY
+            let clampedCenterY = min(max(currentCenterY, minY + h / 2), maxY - h / 2)
+            frame = NSRect(x: x, y: clampedCenterY - h / 2, width: w, height: h)
         }
 
-        let currentCenterY = panelCenterY ?? screen.visibleFrame.midY
-        let minY = screen.visibleFrame.minY
-        let maxY = screen.visibleFrame.maxY
-        let clampedCenterY = min(max(currentCenterY, minY + h / 2), maxY - h / 2)
-        let frame = NSRect(x: x, y: clampedCenterY - h / 2, width: w, height: h)
         isUpdatingFrame = true
         panel.setFrame(frame, display: true)
         isUpdatingFrame = false
+        panelCenterX = frame.midX
         panelCenterY = frame.midY
-        preferredScreenID = screenID(for: panel.screen)
+        preferredScreenID = screenID(for: screen)
     }
 
-    private func resolvedScreen(for panel: NSPanel) -> NSScreen? {
+    private func resolvedScreen(for panel: NSPanel, preferredLocation: NSPoint? = nil) -> NSScreen? {
+        if let preferredLocation, let screen = screen(containing: preferredLocation) {
+            return screen
+        }
+
         if let preferredScreenID,
            let preferred = NSScreen.screens.first(where: { screenID(for: $0) == preferredScreenID }) {
             return preferred
@@ -689,6 +733,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         return NSScreen.main ?? NSScreen.screens.first
+    }
+
+    private func screen(containing location: NSPoint) -> NSScreen? {
+        NSScreen.screens.first { $0.frame.contains(location) }
+    }
+
+    private func windowDragScreens() -> [WindowDragScreen] {
+        NSScreen.screens.map {
+            WindowDragScreen(frame: $0.frame, visibleFrame: $0.visibleFrame)
+        }
     }
 
     private func screenID(for screen: NSScreen?) -> NSNumber? {

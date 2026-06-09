@@ -8,6 +8,7 @@ enum ShelfLayout {
     static let headerHeight: CGFloat = 30
     static let controlsHeight: CGFloat = 56
     static let screenEdgeMargin: CGFloat = 16
+    static let dragAnchorGap: CGFloat = 12
 
     static let columns = 2
     static let itemWidth: CGFloat = 80
