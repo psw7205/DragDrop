@@ -526,7 +526,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let preferencesView = PreferencesView(
+        let hostingController = NSHostingController(rootView: makePreferencesView())
+        let window = NSWindow(contentViewController: hostingController)
+        window.title = "Preferences"
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        window.center()
+
+        let controller = NSWindowController(window: window)
+        preferencesWindowController = controller
+        controller.showWindow(nil)
+        activatePreferencesWindow()
+    }
+
+    func makePreferencesView() -> PreferencesView {
+        PreferencesView(
             preferences: preferences,
             isLaunchAtLoginEnabled: {
                 SMAppService.mainApp.status == .enabled
@@ -544,18 +558,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 return try self.cleanUpStorageFromPreferences()
             }
         )
-
-        let hostingController = NSHostingController(rootView: preferencesView)
-        let window = NSWindow(contentViewController: hostingController)
-        window.title = "Preferences"
-        window.styleMask = [.titled, .closable]
-        window.isReleasedWhenClosed = false
-        window.center()
-
-        let controller = NSWindowController(window: window)
-        preferencesWindowController = controller
-        controller.showWindow(nil)
-        activatePreferencesWindow()
     }
 
     private func activatePreferencesWindow() {

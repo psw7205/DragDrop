@@ -13,7 +13,7 @@ struct DragDropApp: App {
 
     var body: some Scene {
         Settings {
-            EmptyView()
+            appDelegate.makePreferencesView()
         }
     }
 }
