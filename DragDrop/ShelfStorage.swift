@@ -234,10 +234,7 @@ class ShelfStorage {
             let createdAt = files.compactMap {
                 try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate
             }.min() ?? Date()
-            let totalBytes = files.reduce(Int64(0)) { total, url in
-                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                return total + Int64(size)
-            }
+            let totalBytes = files.reduce(Int64(0)) { $0 + Self.totalBytes(for: $1) }
 
             entries.append(PersistedEntry(
                 id: uuid,
@@ -253,6 +250,33 @@ class ShelfStorage {
         let normalizedStorage = storageURL.standardizedFileURL.path
         let normalizedURL = url.standardizedFileURL.path
         return normalizedURL == normalizedStorage || normalizedURL.hasPrefix(normalizedStorage + "/")
+    }
+
+    static func totalBytes(for url: URL) -> Int64 {
+        let fileManager = FileManager.default
+        let resourceKeys: Set<URLResourceKey> = [.isDirectoryKey, .fileSizeKey]
+        guard let values = try? url.resourceValues(forKeys: resourceKeys) else { return 0 }
+
+        if values.isDirectory == true {
+            guard let enumerator = fileManager.enumerator(
+                at: url,
+                includingPropertiesForKeys: Array(resourceKeys),
+                options: [.skipsHiddenFiles]
+            ) else {
+                return 0
+            }
+
+            return enumerator.compactMap { entry -> Int64? in
+                guard let entryURL = entry as? URL,
+                      let entryValues = try? entryURL.resourceValues(forKeys: resourceKeys),
+                      entryValues.isDirectory != true else {
+                    return nil
+                }
+                return Int64(entryValues.fileSize ?? 0)
+            }.reduce(0, +)
+        }
+
+        return Int64(values.fileSize ?? 0)
     }
 
     static func classifyContent(url: URL) -> ShelfContent {

@@ -41,8 +41,13 @@ script/build_and_run.sh
 
 ```bash
 xcodebuild -project DragDrop.xcodeproj -scheme DragDrop -configuration Release build
-cp -R ~/Library/Developer/Xcode/DerivedData/DragDrop-*/Build/Products/Release/DragDrop.app /Applications/
+script/validate_release.sh path/to/DragDrop.app
 ```
+
+- Release configuration은 hardened runtime을 켠다.
+- 배포용 `.app`은 `Developer ID Application` identity로 서명되고 notarization/Gatekeeper 검증을 통과해야 한다.
+- `script/validate_release.sh`는 signing을 수행하지 않고, 이미 만들어진 `.app`의 bundle id, code signature, hardened runtime, `get-task-allow`, Gatekeeper acceptance를 확인한다.
+- 검증이 통과한 `.app`만 `/Applications` 또는 배포 패키지에 넣는다.
 
 ## How It Works
 

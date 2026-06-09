@@ -256,6 +256,21 @@ final class ShelfViewModelTests: XCTestCase {
         XCTAssertTrue(metadata.tooltipText.contains("example.com"))
     }
 
+    func testMetadataUsesRecursiveSizeForDirectoryItems() throws {
+        let vm = makeViewModel(with: [])
+        let folderURL = storageRoot.appendingPathComponent("Folder", isDirectory: true)
+        let nestedURL = folderURL.appendingPathComponent("Nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedURL, withIntermediateDirectories: true)
+        try Data(repeating: 0, count: 12).write(to: folderURL.appendingPathComponent("root.txt"))
+        try Data(repeating: 0, count: 18).write(to: nestedURL.appendingPathComponent("nested.txt"))
+        let item = ShelfItem(content: .file(url: folderURL, fileName: "Folder"))
+        vm.items = [item]
+
+        let metadata = vm.metadata(for: item)
+
+        XCTAssertEqual(metadata.sizeBytes, 30)
+    }
+
     // MARK: - moveItem
 
     func testMoveItemForward() {

@@ -16,6 +16,202 @@ private enum PreferencesWindowError: LocalizedError {
     }
 }
 
+struct ShelfHotKey: Equatable {
+    let keyCode: UInt32
+    let carbonModifiers: UInt32
+    let identifier: UInt32
+
+    static let toggleShelf = ShelfHotKey(
+        keyCode: UInt32(kVK_ANSI_D),
+        carbonModifiers: UInt32(optionKey | shiftKey),
+        identifier: 1
+    )
+
+    var eventHotKeyID: EventHotKeyID {
+        EventHotKeyID(signature: Self.signature, id: identifier)
+    }
+
+    private static let signature: OSType = {
+        UInt32("D".unicodeScalars.first!.value) << 24
+            | UInt32("D".unicodeScalars.first!.value) << 16
+            | UInt32("S".unicodeScalars.first!.value) << 8
+            | UInt32("H".unicodeScalars.first!.value)
+    }()
+}
+
+enum CarbonHotKeyError: LocalizedError {
+    case handlerInstallFailed(OSStatus)
+    case registrationFailed(OSStatus)
+
+    var errorDescription: String? {
+        switch self {
+        case .handlerInstallFailed(let status):
+            "Failed to install hot key handler: \(status)"
+        case .registrationFailed(let status):
+            "Failed to register hot key: \(status)"
+        }
+    }
+}
+
+final class CarbonHotKeyRegistration {
+    fileprivate let hotKeyRef: EventHotKeyRef?
+    fileprivate let eventHandlerRef: EventHandlerRef?
+    fileprivate let callbackBox: CarbonHotKeyCallbackBox?
+
+    init() {
+        hotKeyRef = nil
+        eventHandlerRef = nil
+        callbackBox = nil
+    }
+
+    fileprivate init(
+        hotKeyRef: EventHotKeyRef? = nil,
+        eventHandlerRef: EventHandlerRef? = nil,
+        callbackBox: CarbonHotKeyCallbackBox? = nil
+    ) {
+        self.hotKeyRef = hotKeyRef
+        self.eventHandlerRef = eventHandlerRef
+        self.callbackBox = callbackBox
+    }
+}
+
+private final class CarbonHotKeyCallbackBox {
+    let hotKey: ShelfHotKey
+    let onPressed: () -> Void
+
+    init(hotKey: ShelfHotKey, onPressed: @escaping () -> Void) {
+        self.hotKey = hotKey
+        self.onPressed = onPressed
+    }
+}
+
+final class CarbonHotKeyMonitor {
+    typealias Register = (ShelfHotKey, @escaping () -> Void) throws -> CarbonHotKeyRegistration
+    typealias Unregister = (CarbonHotKeyRegistration) -> Void
+
+    private let hotKey: ShelfHotKey
+    private let onPressed: () -> Void
+    private let register: Register
+    private let unregister: Unregister
+    private var registration: CarbonHotKeyRegistration?
+
+    @MainActor init(
+        hotKey: ShelfHotKey,
+        onPressed: @escaping () -> Void
+    ) {
+        self.hotKey = hotKey
+        self.onPressed = onPressed
+        register = Self.registerWithCarbon
+        unregister = Self.unregisterWithCarbon
+    }
+
+    @MainActor init(
+        hotKey: ShelfHotKey,
+        onPressed: @escaping () -> Void,
+        register: @escaping Register,
+        unregister: @escaping Unregister
+    ) {
+        self.hotKey = hotKey
+        self.onPressed = onPressed
+        self.register = register
+        self.unregister = unregister
+    }
+
+    func start() throws {
+        guard registration == nil else { return }
+        registration = try register(hotKey, onPressed)
+    }
+
+    func stop() {
+        guard let registration else { return }
+        unregister(registration)
+        self.registration = nil
+    }
+
+    deinit {
+        stop()
+    }
+
+    private static func registerWithCarbon(
+        hotKey: ShelfHotKey,
+        onPressed: @escaping () -> Void
+    ) throws -> CarbonHotKeyRegistration {
+        let callbackBox = CarbonHotKeyCallbackBox(hotKey: hotKey, onPressed: onPressed)
+        var eventSpec = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
+        var eventHandlerRef: EventHandlerRef?
+        let handlerStatus = InstallEventHandler(
+            GetApplicationEventTarget(),
+            { _, event, userData in
+                guard let event, let userData else { return noErr }
+                let box = Unmanaged<CarbonHotKeyCallbackBox>
+                    .fromOpaque(userData)
+                    .takeUnretainedValue()
+                var eventHotKeyID = EventHotKeyID()
+                let parameterStatus = GetEventParameter(
+                    event,
+                    EventParamName(kEventParamDirectObject),
+                    EventParamType(typeEventHotKeyID),
+                    nil,
+                    MemoryLayout<EventHotKeyID>.size,
+                    nil,
+                    &eventHotKeyID
+                )
+                guard parameterStatus == noErr,
+                      eventHotKeyID.signature == box.hotKey.eventHotKeyID.signature,
+                      eventHotKeyID.id == box.hotKey.identifier else {
+                    return noErr
+                }
+                DispatchQueue.main.async {
+                    box.onPressed()
+                }
+                return noErr
+            },
+            1,
+            &eventSpec,
+            UnsafeMutableRawPointer(Unmanaged.passUnretained(callbackBox).toOpaque()),
+            &eventHandlerRef
+        )
+        guard handlerStatus == noErr else {
+            throw CarbonHotKeyError.handlerInstallFailed(handlerStatus)
+        }
+
+        let hotKeyID = hotKey.eventHotKeyID
+        var hotKeyRef: EventHotKeyRef?
+        let registrationStatus = RegisterEventHotKey(
+            hotKey.keyCode,
+            hotKey.carbonModifiers,
+            hotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &hotKeyRef
+        )
+        guard registrationStatus == noErr else {
+            if let eventHandlerRef {
+                RemoveEventHandler(eventHandlerRef)
+            }
+            throw CarbonHotKeyError.registrationFailed(registrationStatus)
+        }
+
+        return CarbonHotKeyRegistration(
+            hotKeyRef: hotKeyRef,
+            eventHandlerRef: eventHandlerRef,
+            callbackBox: callbackBox
+        )
+    }
+
+    private static func unregisterWithCarbon(_ registration: CarbonHotKeyRegistration) {
+        if let hotKeyRef = registration.hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+        }
+        if let eventHandlerRef = registration.eventHandlerRef {
+            RemoveEventHandler(eventHandlerRef)
+        }
+    }
+}
+
 class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var panel: ShelfPanel?
     private let viewModel = ShelfViewModel()
@@ -30,8 +226,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var panelCenterX: CGFloat?
     private var preferredScreenID: NSNumber?
     private var isUpdatingFrame = false
-    private var globalHotkeyMonitor: Any?
-    private var localHotkeyMonitor: Any?
+    private var hotKeyMonitor: CarbonHotKeyMonitor?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -148,26 +343,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupGlobalHotkey() {
-        globalHotkeyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            self?.handleHotkey(event)
+        guard !Self.isRunningUnitTests else { return }
+
+        let monitor = CarbonHotKeyMonitor(hotKey: .toggleShelf) { [weak self] in
+            self?.toggleShelfFromHotkey()
         }
-        localHotkeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if self?.handleHotkey(event) == true { return nil }
-            return event
+        do {
+            try monitor.start()
+            hotKeyMonitor = monitor
+        } catch {
+            NSLog("DragDrop: Failed to register global hot key: %@", error.localizedDescription)
         }
     }
 
-    @discardableResult
-    private func handleHotkey(_ event: NSEvent) -> Bool {
-        let required: NSEvent.ModifierFlags = [.option, .shift]
-        let forbidden: NSEvent.ModifierFlags = [.command, .control]
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags.contains(required), flags.intersection(forbidden).isEmpty,
-              Int(event.keyCode) == kVK_ANSI_D else {
-            return false
-        }
-        toggleShelfFromHotkey()
-        return true
+    private static var isRunningUnitTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
     private func toggleShelfFromHotkey() {
@@ -509,12 +699,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if let panelMoveObserver {
             NotificationCenter.default.removeObserver(panelMoveObserver)
         }
-        if let globalHotkeyMonitor {
-            NSEvent.removeMonitor(globalHotkeyMonitor)
-        }
-        if let localHotkeyMonitor {
-            NSEvent.removeMonitor(localHotkeyMonitor)
-        }
+        hotKeyMonitor?.stop()
     }
 }
 

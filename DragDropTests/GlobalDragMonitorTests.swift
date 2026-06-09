@@ -1,8 +1,38 @@
 import AppKit
+import Carbon.HIToolbox
 import XCTest
 @testable import DragDrop
 
 final class GlobalDragMonitorTests: XCTestCase {
+    func testToggleShelfHotKeyUsesCarbonOptionShiftDDescriptor() {
+        XCTAssertEqual(ShelfHotKey.toggleShelf.keyCode, UInt32(kVK_ANSI_D))
+        XCTAssertEqual(ShelfHotKey.toggleShelf.carbonModifiers, UInt32(optionKey | shiftKey))
+    }
+
+    func testCarbonHotKeyMonitorRegistersOnlyOnceAndStopsRegisteredShortcut() throws {
+        var registeredHotKeys: [ShelfHotKey] = []
+        var unregisteredCount = 0
+        let monitor = CarbonHotKeyMonitor(
+            hotKey: .toggleShelf,
+            onPressed: {},
+            register: { hotKey, _ in
+                registeredHotKeys.append(hotKey)
+                return CarbonHotKeyRegistration()
+            },
+            unregister: { _ in
+                unregisteredCount += 1
+            }
+        )
+
+        try monitor.start()
+        try monitor.start()
+        monitor.stop()
+        monitor.stop()
+
+        XCTAssertEqual(registeredHotKeys, [.toggleShelf])
+        XCTAssertEqual(unregisteredCount, 1)
+    }
+
     func testStartsOnceWhenFileDragPasteboardChanges() {
         let monitor = makeMonitor(snapshots: [
             DragPasteboardSnapshot(changeCount: 0, types: []),

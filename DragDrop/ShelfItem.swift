@@ -94,8 +94,7 @@ struct ShelfItemMetadata: Equatable {
     }()
 
     private static func fileSize(for url: URL) -> Int64 {
-        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-        return Int64(size)
+        ShelfStorage.totalBytes(for: url)
     }
 
     private static func linkHost(for item: ShelfItem) -> String? {

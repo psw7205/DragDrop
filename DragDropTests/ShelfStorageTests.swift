@@ -159,6 +159,22 @@ final class ShelfStorageTests: XCTestCase {
         XCTAssertEqual(metrics.totalBytes, 30)
     }
 
+    func testStorageMetricsCountsNestedDirectoryFileBytesRecursively() throws {
+        let storage = makeStorage()
+        let id = UUID()
+        let itemDirectory = storageRoot.appendingPathComponent(id.uuidString, isDirectory: true)
+        let folderURL = itemDirectory.appendingPathComponent("Folder", isDirectory: true)
+        let nestedURL = folderURL.appendingPathComponent("Nested", isDirectory: true)
+        try FileManager.default.createDirectory(at: nestedURL, withIntermediateDirectories: true)
+        try Data(repeating: 0, count: 10).write(to: folderURL.appendingPathComponent("root.txt"))
+        try Data(repeating: 0, count: 20).write(to: nestedURL.appendingPathComponent("nested.txt"))
+
+        let metrics = try storage.storageMetrics()
+
+        XCTAssertEqual(metrics.itemCount, 1)
+        XCTAssertEqual(metrics.totalBytes, 30)
+    }
+
     func testCleanupRemovesItemsOlderThanMaximumAge() throws {
         let storage = makeStorage()
         let now = Date()

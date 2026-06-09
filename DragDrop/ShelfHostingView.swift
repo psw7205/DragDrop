@@ -1,6 +1,51 @@
 import AppKit
 import SwiftUI
 
+enum ShelfDropPayload {
+    static func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
+        if let fileURLs = pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL], !fileURLs.isEmpty {
+            return fileURLs
+        }
+
+        guard let paths = pasteboard.propertyList(forType: .legacyFilenames) as? [String] else {
+            return []
+        }
+        return paths.map { URL(fileURLWithPath: $0) }
+    }
+
+    static func webURL(from pasteboard: NSPasteboard) -> URL? {
+        guard let urls = pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: false]
+        ) as? [URL] else {
+            return nil
+        }
+
+        return urls.first { url in
+            guard let scheme = url.scheme else { return false }
+            return ["http", "https"].contains(scheme.lowercased())
+        }
+    }
+
+    static func shelfItemIDs(from pasteboard: NSPasteboard) -> [UUID] {
+        if let payload = pasteboard.string(forType: .shelfItemIDs) {
+            return payload
+                .split(whereSeparator: \.isNewline)
+                .compactMap { UUID(uuidString: String($0)) }
+        }
+
+        if let idString = pasteboard.string(forType: .shelfItemID),
+           let id = UUID(uuidString: idString) {
+            return [id]
+        }
+
+        return []
+    }
+}
+
 class ShelfHostingView: NSView {
     var onDragEntered: (() -> Void)?
     var onDragExited: (() -> Void)?
@@ -19,7 +64,7 @@ class ShelfHostingView: NSView {
             hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
             hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
         ])
-        registerForDraggedTypes([.fileURL, .URL, .shelfItemID, .shelfItemIDs])
+        registerForDraggedTypes([.fileURL, .URL, .legacyFilenames, .shelfItemID, .shelfItemIDs])
     }
 
     @available(*, unavailable)
@@ -48,7 +93,7 @@ class ShelfHostingView: NSView {
         let pasteboard = sender.draggingPasteboard
 
         // 내부 리오더 체크 (최우선)
-        let shelfItemIDs = parseShelfItemIDs(from: pasteboard)
+        let shelfItemIDs = ShelfDropPayload.shelfItemIDs(from: pasteboard)
         if !shelfItemIDs.isEmpty {
             let location = convert(sender.draggingLocation, from: nil)
             let targetIndex = gridIndex(from: location)
@@ -57,20 +102,14 @@ class ShelfHostingView: NSView {
         }
 
         // file URL
-        if let fileURLs = pasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: [.urlReadingFileURLsOnly: true]
-        ) as? [URL], !fileURLs.isEmpty {
+        let fileURLs = ShelfDropPayload.fileURLs(from: pasteboard)
+        if !fileURLs.isEmpty {
             onFilesDropped?(fileURLs)
             return true
         }
 
         // non-file URL (웹 링크)
-        if let urls = pasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: [.urlReadingFileURLsOnly: false]
-        ) as? [URL], let webURL = urls.first,
-           let scheme = webURL.scheme, ["http", "https"].contains(scheme.lowercased()) {
+        if let webURL = ShelfDropPayload.webURL(from: pasteboard) {
             onLinkDropped?(webURL)
             return true
         }
@@ -81,21 +120,6 @@ class ShelfHostingView: NSView {
     private func hasShelfItems(_ pasteboard: NSPasteboard) -> Bool {
         guard let types = pasteboard.types else { return false }
         return types.contains(.shelfItemIDs) || types.contains(.shelfItemID)
-    }
-
-    private func parseShelfItemIDs(from pasteboard: NSPasteboard) -> [UUID] {
-        if let payload = pasteboard.string(forType: .shelfItemIDs) {
-            return payload
-                .split(whereSeparator: \.isNewline)
-                .compactMap { UUID(uuidString: String($0)) }
-        }
-
-        if let idString = pasteboard.string(forType: .shelfItemID),
-           let id = UUID(uuidString: idString) {
-            return [id]
-        }
-
-        return []
     }
 
     private func gridIndex(from point: NSPoint) -> Int {

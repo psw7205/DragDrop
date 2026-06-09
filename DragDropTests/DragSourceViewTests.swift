@@ -66,6 +66,21 @@ final class DragSourceViewTests: XCTestCase {
         XCTAssertEqual(pasteboard.pasteboardItems?.count, urls.count)
     }
 
+    func testShelfDropPayloadReadsLegacyFilenamePaths() {
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("DragSourceViewTests-\(UUID().uuidString)"))
+        pasteboard.clearContents()
+        defer { pasteboard.releaseGlobally() }
+
+        let urls = [
+            makeTempFile(named: "legacy-one.txt"),
+            makeTempFile(named: "legacy-two.txt"),
+        ]
+        pasteboard.declareTypes([.legacyFilenames], owner: nil)
+        pasteboard.setPropertyList(urls.map(\.path), forType: .legacyFilenames)
+
+        XCTAssertEqual(ShelfDropPayload.fileURLs(from: pasteboard), urls)
+    }
+
     private func makeTempFile(named fileName: String) -> URL {
         let url = tempDirectory.appendingPathComponent(fileName)
         _ = FileManager.default.createFile(atPath: url.path, contents: Data(), attributes: nil)
